@@ -5,7 +5,7 @@ comment threads, review statuses, decisions and optional thumbnails.
 
 **Package:** `mgamadeus/ddd-design-studio` (v0.1.x); frontend: npm `@mgamadeus/ddd-design-studio` in `web/` (same version)
 **Namespace:** `DDD\`
-**Depends on:** `mgamadeus/ddd` (^3.15), `mgamadeus/ddd-argus` (^1.3.3)
+**Depends on:** `mgamadeus/ddd` (^3.15.3), `mgamadeus/ddd-argus` (^1.3.3)
 
 > **This module follows all DDD Core conventions.**
 > For base patterns, see vendor/mgamadeus/ddd/AGENTS.md and skills in vendor/mgamadeus/ddd.

@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "034372fcf1d397970adc6a8f97776dee",
+    "content-hash": "e43357102a134ca970a5b615723ca6d8",
     "packages": [
         {
             "name": "beberlei/doctrineextensions",
@@ -2715,16 +2715,16 @@
         },
         {
             "name": "mgamadeus/ddd",
-            "version": "3.15.2",
+            "version": "3.15.3",
             "source": {
                 "type": "git",
                 "url": "https://github.com/ddd-framework/ddd.git",
-                "reference": "0aa9f7da28ea70737a3e987d6d9f6dfebae57d19"
+                "reference": "814db2bd6c6cf640361d11c0271bd1166c34cc80"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/ddd-framework/ddd/zipball/0aa9f7da28ea70737a3e987d6d9f6dfebae57d19",
-                "reference": "0aa9f7da28ea70737a3e987d6d9f6dfebae57d19",
+                "url": "https://api.github.com/repos/ddd-framework/ddd/zipball/814db2bd6c6cf640361d11c0271bd1166c34cc80",
+                "reference": "814db2bd6c6cf640361d11c0271bd1166c34cc80",
                 "shasum": ""
             },
             "require": {
@@ -2813,7 +2813,7 @@
                 "issues": "https://github.com/ddd-framework/ddd/issues",
                 "source": "https://github.com/ddd-framework/ddd"
             },
-            "time": "2026-11-09T20:59:44+00:00"
+            "time": "2026-11-10T01:46:47+00:00"
         },
         {
             "name": "mgamadeus/ddd-argus",

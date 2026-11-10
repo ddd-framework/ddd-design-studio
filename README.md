@@ -49,7 +49,7 @@ hash, written once, shared by every thread on that version) and rendered thumbna
 ## Requirements
 
 - PHP as required by `mgamadeus/ddd` ^3.15
-- `mgamadeus/ddd` ^3.15 and `mgamadeus/ddd-argus` ^1.3.3 (installed as dependencies)
+- `mgamadeus/ddd` ^3.15.3 and `mgamadeus/ddd-argus` ^1.3.3 (installed as dependencies)
 - A named store of the framework's object storage for snapshots and thumbnails (optional; see
   [Object storage](#7-object-storage))
 - Imagick (optional): only for the reduced copy of a thumbnail; without it the full picture is delivered instead

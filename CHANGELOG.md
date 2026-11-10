@@ -2,7 +2,7 @@
 
 ## 0.1.0
 
-Initial release. Requires `mgamadeus/ddd` ^3.15 and `mgamadeus/ddd-argus` ^1.3.3.
+Initial release. Requires `mgamadeus/ddd` ^3.15.3 and `mgamadeus/ddd-argus` ^1.3.3.
 
 - **Directory model:** projects and canvases from the config `DesignStudio.projects`; boards and sections read from
   `canvas.json` and the board files of the running checkout (`DesignDirectoryReaderService`); a board version is the
