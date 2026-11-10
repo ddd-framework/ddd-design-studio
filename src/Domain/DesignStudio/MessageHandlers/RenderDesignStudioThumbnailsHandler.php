@@ -7,13 +7,14 @@ namespace DDD\Domain\DesignStudio\MessageHandlers;
 use DDD\Domain\DesignStudio\Services\DesignStudioThumbnailRenderRequestsService;
 use DDD\Domain\Base\Entities\MessageHandlers\AppMessageHandler;
 use DDD\Infrastructure\Services\DDDService;
-use Symfony\Component\Messenger\Attribute\AsMessageHandler;
 
 /**
  * Renders the missing thumbnails of a canvas through the renderer service. A run ends after the service's run budget
  * and continues in a new message; renderer outages are retried with backoff by the service, never thrown.
+ *
+ * Carries no AsMessageHandler attribute on purpose: the application registers it in its services.yaml with the
+ * `messenger.message_handler` tag (`from_transport: render_design_studio_thumbnails`), the one place that binds it.
  */
-#[AsMessageHandler(fromTransport: 'render_design_studio_thumbnails')]
 class RenderDesignStudioThumbnailsHandler extends AppMessageHandler
 {
     public function __invoke(RenderDesignStudioThumbnailsMessage $renderDesignStudioThumbnailsMessage): void

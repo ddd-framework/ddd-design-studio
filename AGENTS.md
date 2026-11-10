@@ -99,7 +99,7 @@ All in `DDD\Domain\DesignStudio\Services\` (public via `DesignStudioModule::getP
 | `DesignStudioFilesService` | object storage: snapshots (`storeSnapshot()`, `readSnapshot()`, `deleteSnapshot()`, `getSnapshotObjectKey()`) and thumbnails (`storeThumbnail()`, `storeSmallThumbnail()`, `readThumbnail()`); answers `null` without a configured store |
 | `DesignBoardContentService` | delivery: `createContentToken()`, `authenticateContentToken()`, `getBoardHtml()`, `getBoardHtmlForSandbox()`, static `removeScripts()` / `applyTheme()` |
 | `DesignAccessPolicyService` | extension point: `canView()`, `canComment()`, `canSetStatus()`, `canDecide()`, `getAccountDisplayName()` |
-| `DesignThemeProviderService` | extension point: `findThemes()`, `getTheme()`, `getThemeStyle()`; fixed helpers `getThemeStyleForReference()`, static `splitThemeReference()` / `computeThemeHash()` |
+| `DesignThemeProviderService` | extension point: `findThemes()`, `getTheme()`, `getThemeStyle()`; fixed helpers `getThemeStyleForReference()`, static `computeThemeHash()`; a reference is parsed by `DesignThemeReference::fromString()` |
 
 ### Flows worth knowing before changing code
 

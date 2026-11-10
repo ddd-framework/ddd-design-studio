@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace DDD\Tests\DesignStudio\Services;
 
 use DDD\Domain\DesignStudio\Services\DesignBoardContentService;
+use DDD\Domain\DesignStudio\Entities\Themes\DesignThemeReference;
 use DDD\Domain\DesignStudio\Services\DesignThemeProviderService;
 use PHPUnit\Framework\TestCase;
 
@@ -38,10 +39,10 @@ class DesignBoardContentServiceTest extends TestCase
 
     public function testSplitsThemeReferences(): void
     {
-        $this->assertSame(['brand:2', 'light'], DesignThemeProviderService::splitThemeReference('brand:2:light'));
-        $this->assertSame(['brand:1', 'dark'], DesignThemeProviderService::splitThemeReference('brand:1:dark'));
-        $this->assertSame(['brand:1', 'light'], DesignThemeProviderService::splitThemeReference('brand:1'));
-        $this->assertSame(['brand', 'light'], DesignThemeProviderService::splitThemeReference(' brand '));
+        $this->assertSame(['brand:2', 'light'], [DesignThemeReference::fromString('brand:2:light')->themeId, DesignThemeReference::fromString('brand:2:light')->mode]);
+        $this->assertSame(['brand:1', 'dark'], [DesignThemeReference::fromString('brand:1:dark')->themeId, DesignThemeReference::fromString('brand:1:dark')->mode]);
+        $this->assertSame(['brand:1', 'light'], [DesignThemeReference::fromString('brand:1')->themeId, DesignThemeReference::fromString('brand:1')->mode]);
+        $this->assertSame(['brand', 'light'], [DesignThemeReference::fromString(' brand ')->themeId, DesignThemeReference::fromString(' brand ')->mode]);
     }
 
     public function testTheDefaultProviderKnowsNoThemes(): void

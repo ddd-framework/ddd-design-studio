@@ -1,7 +1,7 @@
 /**
  * Theme references of the design studio: `<themeId>` or `<themeId>:<mode>` (mode `light` or `dark`), e.g.
  * `brand:1:dark` — the theme id itself may contain colons, only a trailing `:light` / `:dark` is the mode (same rule
- * as `DesignThemeProviderService::splitThemeReference`). Pure functions, no React (tested in designTheme.test.ts).
+ * as `DesignThemeReference::fromString`). Pure functions, no React (tested in designTheme.test.ts).
  */
 
 export type ThemeMode = 'light' | 'dark';

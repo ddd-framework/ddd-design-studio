@@ -4,7 +4,7 @@ description: "Installs, wires and operates the ddd-design-studio module, a desig
 metadata:
   author: mgamadeus
   version: "0.1.0"
-  framework: mgamadeus/ddd
+  module: mgamadeus/ddd-design-studio
 ---
 
 # Design Studio Module Specialist

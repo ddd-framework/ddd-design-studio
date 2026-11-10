@@ -89,40 +89,46 @@ class DesignDirectoryReaderService extends Service
         }
         $designDirectoryCanvas->title ??= isset($canvasDescription['title']) ? (string)$canvasDescription['title'] : $canvasDefinition->canvasKey;
 
-        $boardRows = $this->selectBoardRows($canvasDescription, $folderPath, $canvasDefinition, $designDirectoryCanvas);
-        $sectionRows = $this->selectSectionRows($canvasDescription, $canvasDefinition);
-        $sectionKeysByBoardKey = $this->assignBoardsToSections($boardRows, $sectionRows);
-        $sectionRows = array_intersect_key($sectionRows, array_flip($sectionKeysByBoardKey));
-        if ($boardRows === []) {
+        $designDirectoryBoards = $this->selectBoards($canvasDescription, $folderPath, $canvasDefinition, $designDirectoryCanvas);
+        if (!$designDirectoryBoards->count()) {
             return $designDirectoryCanvas;
         }
-        $offsetX = min(array_merge(array_column($boardRows, 'x'), array_column($sectionRows, 'x')));
-        $offsetY = min(array_merge(array_column($boardRows, 'y'), array_column($sectionRows, 'y')));
+        $designDirectorySections = $this->selectSections($canvasDescription, $canvasDefinition);
+        $this->assignBoardsToSections($designDirectoryBoards, $designDirectorySections);
+        $usedSectionKeys = [];
+        $horizontalPositions = [];
+        $verticalPositions = [];
+        foreach ($designDirectoryBoards->getElements() as $designDirectoryBoard) {
+            if ($designDirectoryBoard->sectionKey !== null) {
+                $usedSectionKeys[$designDirectoryBoard->sectionKey] = true;
+            }
+            $horizontalPositions[] = $designDirectoryBoard->x;
+            $verticalPositions[] = $designDirectoryBoard->y;
+        }
+        foreach ($designDirectorySections->getElements() as $designDirectorySection) {
+            if (isset($usedSectionKeys[$designDirectorySection->sectionKey])) {
+                $horizontalPositions[] = $designDirectorySection->x;
+                $verticalPositions[] = $designDirectorySection->y;
+            }
+        }
+        $offsetX = min($horizontalPositions);
+        $offsetY = min($verticalPositions);
 
         $displayOrder = 0;
-        foreach ($sectionRows as $sectionKey => $sectionRow) {
-            $designDirectorySection = new DesignDirectorySection();
-            $designDirectorySection->sectionKey = (string)$sectionKey;
-            $designDirectorySection->title = $sectionRow['title'];
-            $designDirectorySection->x = $sectionRow['x'] - $offsetX;
-            $designDirectorySection->y = $sectionRow['y'] - $offsetY;
-            $designDirectorySection->maximumWidth = $sectionRow['maximumWidth'];
+        foreach ($designDirectorySections->getElements() as $designDirectorySection) {
+            if (!isset($usedSectionKeys[$designDirectorySection->sectionKey])) {
+                continue;
+            }
+            $designDirectorySection->x -= $offsetX;
+            $designDirectorySection->y -= $offsetY;
             $designDirectorySection->displayOrder = ++$displayOrder;
             $designDirectoryCanvas->sections->add($designDirectorySection);
         }
         $displayOrder = 0;
-        foreach ($boardRows as $boardKey => $boardRow) {
-            $designDirectoryBoard = new DesignDirectoryBoard();
-            $designDirectoryBoard->boardKey = (string)$boardKey;
-            $designDirectoryBoard->title = $boardRow['title'];
-            $designDirectoryBoard->x = $boardRow['x'] - $offsetX;
-            $designDirectoryBoard->y = $boardRow['y'] - $offsetY;
-            $designDirectoryBoard->width = $boardRow['width'];
-            $designDirectoryBoard->height = $boardRow['height'];
-            $designDirectoryBoard->sectionKey = $sectionKeysByBoardKey[$boardKey] ?? null;
+        foreach ($designDirectoryBoards->getElements() as $designDirectoryBoard) {
+            $designDirectoryBoard->x -= $offsetX;
+            $designDirectoryBoard->y -= $offsetY;
             $designDirectoryBoard->displayOrder = ++$displayOrder;
-            $designDirectoryBoard->contentHash = $boardRow['contentHash'];
-            $designDirectoryBoard->byteSize = $boardRow['byteSize'];
             $designDirectoryCanvas->boards->add($designDirectoryBoard);
         }
         return $designDirectoryCanvas;
@@ -178,18 +184,19 @@ class DesignDirectoryReaderService extends Service
      * @param string $folderPath
      * @param DesignCanvasDefinition $canvasDefinition
      * @param DesignDirectoryCanvas $designDirectoryCanvas receives a warning per board that cannot be read
-     * @return array board key => [x, y, width, height, title, contentHash, byteSize], top to bottom, left to right
+     * @return DesignDirectoryBoards the readable boards with the positions of canvas.json, top to bottom, left to
+     *                               right; section and display order are not set yet
      */
-    protected function selectBoardRows(
+    protected function selectBoards(
         array $canvasDescription,
         string $folderPath,
         DesignCanvasDefinition $canvasDefinition,
         DesignDirectoryCanvas $designDirectoryCanvas
-    ): array {
+    ): DesignDirectoryBoards {
         $boardMaximumBytes = $this->getBoardMaximumBytes();
         $cachedFileHashes = $this->loadFileHashes($folderPath);
         $fileHashes = [];
-        $boardRows = [];
+        $boards = [];
         foreach ($canvasDescription['boards'] as $boardKey => $boardDescription) {
             if (!is_string($boardKey) || !is_array($boardDescription) || !$this->isBoardKeyOfCanvas($boardKey, $canvasDefinition)) {
                 continue;
@@ -212,31 +219,37 @@ class DesignDirectoryReaderService extends Service
                 $contentHash = static::computeContentHash((string)file_get_contents($boardPath));
             }
             $fileHashes[$boardKey] = [$modificationTime, $byteSize, $contentHash];
-            $boardRows[$boardKey] = [
-                'x' => (int)($boardDescription['x'] ?? 0),
-                'y' => (int)($boardDescription['y'] ?? 0),
-                'width' => (int)($boardDescription['w'] ?? static::DEFAULT_BOARD_WIDTH),
-                'height' => (int)($boardDescription['h'] ?? static::DEFAULT_BOARD_HEIGHT),
-                'title' => (string)($boardDescription['title'] ?? $boardKey),
-                'contentHash' => $contentHash,
-                'byteSize' => $byteSize,
-            ];
+            $designDirectoryBoard = new DesignDirectoryBoard();
+            $designDirectoryBoard->boardKey = $boardKey;
+            $designDirectoryBoard->title = (string)($boardDescription['title'] ?? $boardKey);
+            $designDirectoryBoard->x = (int)($boardDescription['x'] ?? 0);
+            $designDirectoryBoard->y = (int)($boardDescription['y'] ?? 0);
+            $designDirectoryBoard->width = (int)($boardDescription['w'] ?? static::DEFAULT_BOARD_WIDTH);
+            $designDirectoryBoard->height = (int)($boardDescription['h'] ?? static::DEFAULT_BOARD_HEIGHT);
+            $designDirectoryBoard->contentHash = $contentHash;
+            $designDirectoryBoard->byteSize = $byteSize;
+            $boards[] = $designDirectoryBoard;
         }
         if ($fileHashes !== $cachedFileHashes) {
             $this->storeFileHashes($folderPath, $fileHashes);
         }
-        uasort($boardRows, static fn(array $first, array $second) => [$first['y'], $first['x']] <=> [$second['y'], $second['x']]);
-        return $boardRows;
+        usort($boards, static fn(DesignDirectoryBoard $first, DesignDirectoryBoard $second) => [$first->y, $first->x] <=> [$second->y, $second->x]);
+        $designDirectoryBoards = new DesignDirectoryBoards();
+        foreach ($boards as $designDirectoryBoard) {
+            $designDirectoryBoards->add($designDirectoryBoard);
+        }
+        return $designDirectoryBoards;
     }
 
     /**
      * @param array $canvasDescription the decoded canvas.json
      * @param DesignCanvasDefinition $canvasDefinition
-     * @return array note key => [x, y, title, maximumWidth], top to bottom
+     * @return DesignDirectorySections the section titles with the positions of canvas.json, top to bottom; display
+     *                                 order is not set yet
      */
-    protected function selectSectionRows(array $canvasDescription, DesignCanvasDefinition $canvasDefinition): array
+    protected function selectSections(array $canvasDescription, DesignCanvasDefinition $canvasDefinition): DesignDirectorySections
     {
-        $sectionRows = [];
+        $sections = [];
         foreach (($canvasDescription['notes'] ?? []) as $noteKey => $noteDescription) {
             if (!is_string($noteKey) || !is_array($noteDescription)) {
                 continue;
@@ -247,33 +260,37 @@ class DesignDirectoryReaderService extends Service
             if (!$isSection) {
                 continue;
             }
-            $sectionRows[$noteKey] = [
-                'x' => (int)($noteDescription['x'] ?? 0),
-                'y' => (int)($noteDescription['y'] ?? 0),
-                'title' => trim((string)($noteDescription['text'] ?? $noteKey)),
-                'maximumWidth' => (int)($noteDescription['maxW'] ?? 0),
-            ];
+            $designDirectorySection = new DesignDirectorySection();
+            $designDirectorySection->sectionKey = $noteKey;
+            $designDirectorySection->title = trim((string)($noteDescription['text'] ?? $noteKey));
+            $designDirectorySection->x = (int)($noteDescription['x'] ?? 0);
+            $designDirectorySection->y = (int)($noteDescription['y'] ?? 0);
+            $designDirectorySection->maximumWidth = (int)($noteDescription['maxW'] ?? 0);
+            $sections[] = $designDirectorySection;
         }
-        uasort($sectionRows, static fn(array $first, array $second) => $first['y'] <=> $second['y']);
-        return $sectionRows;
+        usort($sections, static fn(DesignDirectorySection $first, DesignDirectorySection $second) => $first->y <=> $second->y);
+        $designDirectorySections = new DesignDirectorySections();
+        foreach ($sections as $designDirectorySection) {
+            $designDirectorySections->add($designDirectorySection);
+        }
+        return $designDirectorySections;
     }
 
     /**
-     * @param array $boardRows
-     * @param array $sectionRows top to bottom
-     * @return string[] board key => note key of the nearest section title above the board
+     * Sets each board's section: the nearest section title above it.
+     * @param DesignDirectoryBoards $designDirectoryBoards
+     * @param DesignDirectorySections $designDirectorySections top to bottom
+     * @return void
      */
-    protected function assignBoardsToSections(array $boardRows, array $sectionRows): array
+    protected function assignBoardsToSections(DesignDirectoryBoards $designDirectoryBoards, DesignDirectorySections $designDirectorySections): void
     {
-        $sectionKeysByBoardKey = [];
-        foreach ($boardRows as $boardKey => $boardRow) {
-            foreach ($sectionRows as $sectionKey => $sectionRow) {
-                if ($sectionRow['y'] <= $boardRow['y']) {
-                    $sectionKeysByBoardKey[$boardKey] = (string)$sectionKey;
+        foreach ($designDirectoryBoards->getElements() as $designDirectoryBoard) {
+            foreach ($designDirectorySections->getElements() as $designDirectorySection) {
+                if ($designDirectorySection->y <= $designDirectoryBoard->y) {
+                    $designDirectoryBoard->sectionKey = $designDirectorySection->sectionKey;
                 }
             }
         }
-        return $sectionKeysByBoardKey;
     }
 
     /**

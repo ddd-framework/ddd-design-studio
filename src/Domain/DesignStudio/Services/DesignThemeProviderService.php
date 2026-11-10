@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace DDD\Domain\DesignStudio\Services;
 
 use DDD\Domain\DesignStudio\Entities\Themes\DesignTheme;
+use DDD\Domain\DesignStudio\Entities\Themes\DesignThemeReference;
 use DDD\Domain\DesignStudio\Entities\Themes\DesignThemes;
 use DDD\Infrastructure\Services\Service;
 
@@ -55,23 +56,8 @@ class DesignThemeProviderService extends Service
         if ($themeReference === null || trim($themeReference) === '') {
             return null;
         }
-        [$themeId, $mode] = static::splitThemeReference($themeReference);
-        return $this->getThemeStyle($themeId, $mode);
-    }
-
-    /**
-     * @param string $themeReference `<themeId>` or `<themeId>:<mode>`
-     * @return string[] theme id and mode (light when the reference names none)
-     */
-    public static function splitThemeReference(string $themeReference): array
-    {
-        $themeReference = trim($themeReference);
-        foreach ([DesignTheme::MODE_LIGHT, DesignTheme::MODE_DARK] as $mode) {
-            if (str_ends_with($themeReference, ':' . $mode)) {
-                return [substr($themeReference, 0, -strlen(':' . $mode)), $mode];
-            }
-        }
-        return [$themeReference, DesignTheme::MODE_LIGHT];
+        $designThemeReference = DesignThemeReference::fromString($themeReference);
+        return $this->getThemeStyle((string)$designThemeReference->themeId, $designThemeReference->mode);
     }
 
     /**

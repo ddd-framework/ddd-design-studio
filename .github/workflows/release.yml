@@ -83,4 +83,8 @@ jobs:
           VERSION=$(node -p "require('./package.json').version")
           case "$VERSION" in *-*) DIST_TAG=next ;; *) DIST_TAG=latest ;; esac
           unset NODE_AUTH_TOKEN
+          if npm view "@mgamadeus/ddd-design-studio@${VERSION}" version --registry https://registry.npmjs.org >/dev/null 2>&1; then
+            echo "@mgamadeus/ddd-design-studio@${VERSION} is already on npm, nothing to publish"
+            exit 0
+          fi
           npm publish "$(ls "$RUNNER_TEMP"/mgamadeus-ddd-design-studio-*.tgz)" --provenance --tag "$DIST_TAG" --access public --registry https://registry.npmjs.org
