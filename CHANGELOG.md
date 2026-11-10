@@ -26,4 +26,10 @@ Initial release. Requires `mgamadeus/ddd` ^3.15 and `mgamadeus/ddd-argus` ^1.3.3
   `thumbnails`, `prune`.
 - **Config defaults:** `DesignStudio/api.php`, `content.php`, `projects.php`, `renderer.php`, `retention.php`,
   `statuses.php`, `storage.php`.
-- Tests (`vendor/bin/phpunit`).
+- **Frontend package** `@mgamadeus/ddd-design-studio` (npm, in `web/`, same version): overview, project, reviews and
+  canvas screens, focus view, comment threads with pins, review statuses, design references; the application wires it
+  through `DesignStudioProvider` (API, router, UI primitives, session, storage, replaceable texts). Two entries: `.`
+  and `./canvas` (the only one that loads `@xyflow/react`).
+- **Renderer example** in `renderer/`: a stateless thumbnail renderer with the HTTP contract of the module.
+- Tests (`vendor/bin/phpunit`; `pnpm test` in `web/`), CI and a release workflow that publishes the frontend package
+  on a version tag.

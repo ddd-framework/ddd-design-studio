@@ -90,6 +90,16 @@ The directory says what exists; the database stores only what people said.
    `config/app/Common/ObjectStorage.php` or `OBJECT_STORAGE_DESIGN_STUDIO_*` environment variables.
 8. Verify: `php bin/console app:design-studio:show` lists the projects with their board counts.
 
+## Frontend
+
+The studio's screens are the npm package `@mgamadeus/ddd-design-studio` (folder `web/` of the module repository, same
+version as the Composer package): `npm install @mgamadeus/ddd-design-studio`. The application passes the API prefix of
+its thin controllers to `createDesignStudioApi({ baseApi, apiPrefix })`, builds one `DesignStudioEnvironment` (API
+hooks, router, UI primitives, session, storage, optional `texts`) for `DesignStudioProvider`, creates the pages
+(overview, project, canvas) and lets Tailwind scan the package (`@source` on its `dist`). The canvas screen is the
+separate entry `@mgamadeus/ddd-design-studio/canvas`: load it client-only and lazily. Full contract and a wiring
+example: `web/README.md` of the module repository (the README of the npm package).
+
 ## Configure projects and canvases
 
 ```php

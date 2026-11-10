@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  php:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          # what the locked dependencies require (composer check-platform-reqs --lock)
+          extensions: amqp, dom, fileinfo, gd, iconv, imagick, simplexml, tokenizer, xml, xmlreader, xmlwriter, zip
+          coverage: none
+          tools: composer:v2
+      - run: composer install --no-interaction --no-progress --prefer-dist
+      - run: vendor/bin/phpunit
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    env:
+      COREPACK_ENABLE_DOWNLOAD_PROMPT: 0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Enable corepack (pnpm version from package.json)
+        run: npm i -g corepack@latest && corepack enable
+      - name: package.json and composer.json carry the same version
+        run: |
+          WEB_VERSION=$(node -p "require('./package.json').version")
+          PHP_VERSION=$(node -p "require('../composer.json').version")
+          if [ "$WEB_VERSION" != "$PHP_VERSION" ]; then
+            echo "web/package.json is ${WEB_VERSION}, composer.json is ${PHP_VERSION}" >&2
+            exit 1
+          fi
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      # build = tsup, then scripts/check-package.mjs (export targets, entry split, 'use client')
+      - run: pnpm build
+      - name: Published manifest has no workspace-only specifiers
+        run: |
+          if grep -E '"(workspace|link|file):' package.json; then
+            echo "package.json contains workspace:/link:/file: specifiers" >&2
+            exit 1
+          fi
+      - name: Pack
+        run: pnpm pack --pack-destination "$RUNNER_TEMP"
+      # Per package manager: tarball contents, a runtime import of the main entry and a strict TypeScript consumer of
+      # both entries (moduleResolution bundler and nodenext).
+      - name: Consumer check with npm
+        run: test/consumer/run.sh "$(ls "$RUNNER_TEMP"/mgamadeus-ddd-design-studio-*.tgz)" npm "$RUNNER_TEMP/consumer-npm"
+      - name: Consumer check with pnpm
+        run: test/consumer/run.sh "$(ls "$RUNNER_TEMP"/mgamadeus-ddd-design-studio-*.tgz)" pnpm "$RUNNER_TEMP/consumer-pnpm"

@@ -523,10 +523,25 @@ An open request without any change for 20 minutes is closed as `FAILED` and repl
   against the module's own key shapes before the store is read.
 - **Size limits.** `boardMaximumBytes` and `canvasJsonMaximumBytes` (see [Configuration reference](#configuration-reference)).
 
-## In this repository: `web/` and `renderer/`
+## Frontend
 
-Following in a later commit: a frontend package `@mgamadeus/ddd-design-studio` in `web/` and a renderer example in
-`renderer/`. They are documented there.
+The React frontend of the studio is the npm package **`@mgamadeus/ddd-design-studio`** in [`web/`](web/README.md):
+overview, project and canvas screens, the focus view, comment threads and review statuses, built on RTK Query and
+`@mgamadeus/ddd-web`. It carries the same version number as this Composer package.
+
+```bash
+npm install @mgamadeus/ddd-design-studio
+```
+
+The application hands it its API client, router, UI primitives, session and texts through one provider and creates the
+pages; the API prefix of the controllers from [step 5](#5-add-thin-controllers) is passed to
+`createDesignStudioApi({ baseApi, apiPrefix })`. Installation, the provider contract, the Tailwind setup and a wiring
+example: [`web/README.md`](web/README.md).
+
+## Thumbnail renderer example
+
+[`renderer/`](renderer/README.md) is a working example of the optional thumbnail renderer (a stateless Node service)
+with the HTTP contract the module expects.
 
 ## Tests
 
@@ -537,3 +552,11 @@ vendor/bin/phpunit
 
 The suite runs without an application kernel and without a database (`tests/bootstrap.php` installs a minimal
 container and registers the module's config directory).
+
+The frontend package has its own checks (`web/README.md`, "Development"):
+
+```bash
+cd web
+pnpm install
+pnpm typecheck && pnpm test && pnpm build
+```

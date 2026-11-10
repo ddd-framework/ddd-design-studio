@@ -3,7 +3,7 @@
 Design review studio for the `mgamadeus/ddd` framework -- shows the design boards of a checkout on a canvas, with
 comment threads, review statuses, decisions and optional thumbnails.
 
-**Package:** `mgamadeus/ddd-design-studio` (v0.1.x)
+**Package:** `mgamadeus/ddd-design-studio` (v0.1.x); frontend: npm `@mgamadeus/ddd-design-studio` in `web/` (same version)
 **Namespace:** `DDD\`
 **Depends on:** `mgamadeus/ddd` (^3.15), `mgamadeus/ddd-argus` (^1.3.3)
 
@@ -54,6 +54,13 @@ src/
 +-- Modules/DesignStudio/DesignStudioModule.php
 config/app/DesignStudio/     [api, content, projects, renderer, retention, statuses, storage]
 tests/                       [bootstrap.php, Support/TestContainer.php, Services/*Test.php]
+web/                         [npm package @mgamadeus/ddd-design-studio: the React frontend]
++-- src/                     [index.ts (main entry), canvas/index.ts (/canvas entry), api/, provider/, screens/, canvas/, utils/]
++-- scripts/                 [clean.mjs, check-package.mjs]
++-- test/consumer/           [tarball installed into a fresh project, strict type check]
++-- package.json, tsup.config.ts, tsconfig.json, pnpm-lock.yaml, README.md
+renderer/                    [example thumbnail renderer: Node service, Dockerfile, README.md with the HTTP contract]
+.github/workflows/           [ci.yml (phpunit + web checks), release.yml (publishes web/ to npm on tag v*)]
 ```
 
 The module ships no controllers, only controller traits: base controller, route prefix, tag and logging belong to the
@@ -149,6 +156,22 @@ All in `DDD\Domain\DesignStudio\Services\` (public via `DesignStudioModule::getP
 - **Docs follow code:** a changed config key, route, command option or default is updated in `README.md`,
   `CHANGELOG.md` and the specialist skill in the same change.
 
+## Frontend package (`web/`)
+
+- Self-contained React code that takes everything from the application through `DesignStudioProvider`
+  (`web/src/provider/types.ts`, `DesignStudioEnvironment`). It imports only `react`, `react-dom`, `@xyflow/react`,
+  `lucide-react`, `@reduxjs/toolkit`, `react-redux`, `@mgamadeus/ddd-web/*`, `clsx`, `tailwind-merge` and relative
+  files. No framework router, no application alias.
+- Two entries: `src/index.ts` must never reach `@xyflow/react`; only `src/canvas/index.ts` does.
+  `scripts/check-package.mjs` (part of `pnpm build`) fails the build otherwise.
+- `web/src/api/types.ts` is the hand-maintained contract with the controller traits and DTOs in `src/Presentation`:
+  a changed route, parameter or response property changes both sides in the same change.
+- UI texts are English. A text an application may want to replace goes into `DesignStudioTexts`
+  (`provider/types.ts`) with its default in `provider/texts.ts`, not into a component as a literal.
+- Class names are Tailwind utilities the application's Tailwind scans from `dist`; do not minify the build.
+- Checks: `pnpm typecheck`, `pnpm test` (node:test, `src/**/*.test.ts`), `pnpm build`, then
+  `test/consumer/run.sh <tarball> <npm|pnpm> <workDir>` on the packed tarball.
+
 ## Tests
 
 ```bash
@@ -169,6 +192,8 @@ this suite.
 ## Releases
 
 The version in `composer.json` is the release: the git tag is `v<version>` (for example `0.1.0` and `v0.1.0`). Add the
-`CHANGELOG.md` entry and bump `metadata.version` of the specialist skill in the same change. Release order and
+`CHANGELOG.md` entry and bump `metadata.version` of the specialist skill and `version` in `web/package.json` in the
+same change (CI and the release workflow fail when the two versions differ). The tag publishes the frontend package to
+npm (`.github/workflows/release.yml`, trusted publishing). Release order and
 dependency floors across modules: the `ddd-module-orchestrator` and `ddd-composer-update-version` skills in
 `vendor/mgamadeus/ddd`.

@@ -1,0 +1,88 @@
+{
+  "name": "@mgamadeus/ddd-design-studio",
+  "version": "0.1.0",
+  "description": "React frontend of the design review studio for backends built with mgamadeus/ddd (Composer package mgamadeus/ddd-design-studio): project overview, a canvas of HTML design boards with live sandboxed previews and thumbnails, comment threads with pins, review statuses and plain-text design references for agents.",
+  "keywords": [
+    "ddd",
+    "mgamadeus",
+    "design-review",
+    "design-studio",
+    "canvas",
+    "react",
+    "rtk-query",
+    "xyflow",
+    "tailwindcss"
+  ],
+  "homepage": "https://github.com/ddd-framework/ddd-design-studio/tree/main/web#readme",
+  "bugs": {
+    "url": "https://github.com/ddd-framework/ddd-design-studio/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ddd-framework/ddd-design-studio.git",
+    "directory": "web"
+  },
+  "license": "MIT",
+  "author": "Marius-Eugen Gerdan <marius@gerdan.net>",
+  "type": "module",
+  "sideEffects": [
+    "**/*.css",
+    "./dist/canvas/index.js"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./canvas": {
+      "types": "./dist/canvas/index.d.ts",
+      "import": "./dist/canvas/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "node scripts/clean.mjs && tsup && node scripts/check-package.mjs .",
+    "typecheck": "tsc -p .",
+    "test": "node --experimental-strip-types --no-warnings --test \"src/**/*.test.ts\"",
+    "prepack": "pnpm build"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@12.16.1",
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "tailwind-merge": "^3.7.0"
+  },
+  "peerDependencies": {
+    "@mgamadeus/ddd-web": "^0.3.0",
+    "@reduxjs/toolkit": "^2.13.0",
+    "@xyflow/react": "^12.12.1",
+    "lucide-react": "^1.66.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-redux": "^9.3.1"
+  },
+  "devDependencies": {
+    "@mgamadeus/ddd-web": "^0.3.0",
+    "@reduxjs/toolkit": "^2.13.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@xyflow/react": "^12.12.1",
+    "lucide-react": "^1.66.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-redux": "^9.3.1",
+    "tsup": "^9.0.0",
+    "typescript": "^6.0.3"
+  }
+}
