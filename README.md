@@ -308,7 +308,7 @@ A list of projects. Default: `[]`.
 | `label` | display name | the key |
 | `path` | read into the project definition (`DesignProjectDefinition::$path`); not evaluated by the module's PHP code | the key |
 | `canvases[].key` | canvas key, same rules, unique within the project | required |
-| `canvases[].label` | display name | canvas view: `title` of `canvas.json`, else the canvas key; overview: the canvas key |
+| `canvases[].label` | display name | `title` of `canvas.json`, else the canvas key |
 | `canvases[].folder` | folder relative to the project root; not absolute, no `..` segment | required |
 | `canvases[].boards` | `fnmatch` patterns of board file names; empty = every board of `canvas.json` | `[]` |
 | `canvases[].sections` | `fnmatch` patterns of note keys that are section titles; empty = every note whose `kind` starts with `title` | `[]` |
