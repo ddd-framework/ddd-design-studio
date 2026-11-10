@@ -101,7 +101,7 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
         $priorityList = implode("\n", $priorityBoardKeys);
         $latestRenderRequest = $this->findLatestRequest($canvasDefinition, $themeHash);
         if ($latestRenderRequest && $latestRenderRequest->isOpen() && $this->isStalled($latestRenderRequest)) {
-            // its messages are gone (worker without the handler, purged queue): close it, a new request takes over
+            // its messages are gone (no consumer handled them, or the queue was emptied): close it, a new request takes over
             $this->setStatus($latestRenderRequest, DesignStudioThumbnailRenderRequest::STATUS_FAILED, 'no render run for ' . static::STALLED_AFTER_SECONDS . ' s, replaced by a new request');
             $latestRenderRequest = null;
         }
@@ -425,8 +425,8 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
 
     /**
      * @param DesignStudioThumbnailRenderRequest $renderRequest an open request
-     * @return bool true when neither the request changed nor a thumbnail of its look was stored for
-     *              STALLED_AFTER_SECONDS (longer than the longest backoff plus one run)
+     * @return bool true when the request did not change for STALLED_AFTER_SECONDS (longer than the longest backoff
+     *              plus one run); every run and every retry writes the request
      * @throws BadRequestException
      * @throws InternalErrorException
      * @throws InvalidArgumentException
@@ -436,11 +436,7 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
     {
         $stalledBefore = time() - static::STALLED_AFTER_SECONDS;
         $lastChange = $renderRequest->changeHistory->modifiedTime ?? $renderRequest->changeHistory->createdTime ?? null;
-        if (!$lastChange || $lastChange->getTimestamp() >= $stalledBefore) {
-            return false;
-        }
-        $newestThumbnailCreated = $this->getDesignStudioThumbnailsService()->findNewestThumbnailOfTheme((string)$renderRequest->themeHash)?->changeHistory->createdTime ?? null;
-        return !$newestThumbnailCreated || $newestThumbnailCreated->getTimestamp() < $stalledBefore;
+        return $lastChange && $lastChange->getTimestamp() < $stalledBefore;
     }
 
     /**

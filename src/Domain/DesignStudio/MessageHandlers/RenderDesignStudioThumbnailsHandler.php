@@ -13,7 +13,7 @@ use Symfony\Component\Messenger\Attribute\AsMessageHandler;
  * Renders the missing thumbnails of a canvas through the renderer service. A run ends after the service's run budget
  * and continues in a new message; renderer outages are retried with backoff by the service, never thrown.
  */
-#[AsMessageHandler(fromTransport: 'render_design_thumbnail_variants')]
+#[AsMessageHandler(fromTransport: 'render_design_studio_thumbnails')]
 class RenderDesignStudioThumbnailsHandler extends AppMessageHandler
 {
     public function __invoke(RenderDesignStudioThumbnailsMessage $renderDesignStudioThumbnailsMessage): void
@@ -21,9 +21,6 @@ class RenderDesignStudioThumbnailsHandler extends AppMessageHandler
         set_time_limit(DesignStudioThumbnailRenderRequestsService::RUN_BUDGET_SECONDS + 180);
         ini_set('memory_limit', '512M');
         $this->setAuthAccountFromMessage($renderDesignStudioThumbnailsMessage);
-        if ($renderDesignStudioThumbnailsMessage->processOnWorkspaceIfNecessary()) {
-            return;
-        }
         $this->getLogger()->info("Render design studio thumbnails for request $renderDesignStudioThumbnailsMessage->renderRequestId, shard "
             . "$renderDesignStudioThumbnailsMessage->shard/$renderDesignStudioThumbnailsMessage->shardCount");
         /** @var DesignStudioThumbnailRenderRequestsService $designStudioThumbnailRenderRequestsService */

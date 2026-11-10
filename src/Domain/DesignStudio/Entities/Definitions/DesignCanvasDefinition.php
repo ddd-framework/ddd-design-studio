@@ -30,6 +30,6 @@ class DesignCanvasDefinition extends ValueObject
     /** @var string[] fnmatch patterns of note keys that are section titles; empty = every note of a title kind */
     public array $sectionPatterns = [];
 
-    /** @var string|null Theme id + mode the canvas is designed in (DesignThemeProvider), e.g. `brand:2:light` */
+    /** @var string|null Theme id + mode the canvas is designed in (DesignThemeProviderService), e.g. `brand:2:light` */
     public ?string $referenceTheme = null;
 }

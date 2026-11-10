@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace DDD\Symfony\Commands\DesignStudio;
 
 use DDD\Domain\DesignStudio\Services\DesignStudioCommentsService;
-use DDD\Infrastructure\Services\AuthService;
 use DDD\Infrastructure\Services\DDDService;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -52,7 +51,7 @@ class DesignStudioShow extends DesignStudioCommand
             return Command::SUCCESS;
         }
         $canvasDefinition = $this->getCanvasDefinition($input);
-        $designStudioCanvasView = $designStudioCanvasViewsService->getCanvasView($canvasDefinition, null, AuthService::instance()->getAccount());
+        $designStudioCanvasView = $designStudioCanvasViewsService->getCanvasView($canvasDefinition, null, $this->getCliAccount());
         $boardKey = $input->getOption('board');
         if ($boardKey) {
             /** @var DesignStudioCommentsService $designStudioCommentsService */

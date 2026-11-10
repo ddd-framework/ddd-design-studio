@@ -7,6 +7,7 @@ namespace DDD\Symfony\Commands\DesignStudio;
 use DDD\Domain\DesignStudio\Entities\Comments\DesignStudioComment;
 use DDD\Domain\DesignStudio\Entities\Definitions\DesignCanvasDefinition;
 use DDD\Domain\DesignStudio\Services\DesignStudioCanvasViewsService;
+use DDD\Domain\Common\Entities\Accounts\Account;
 use DDD\Infrastructure\Exceptions\BadRequestException;
 use DDD\Infrastructure\Exceptions\NotFoundException;
 use DDD\Infrastructure\Services\AuthService;
@@ -17,7 +18,8 @@ use Symfony\Component\Console\Input\InputInterface;
 
 /**
  * Base of the design studio console commands. They are how agents and developers work with the studio from a
- * workspace: the boards are the files of that checkout, the review state is in the database the workspace uses.
+ * terminal: the boards are the files of the checkout the command runs in, the review state is in that application's
+ * database.
  */
 abstract class DesignStudioCommand extends Command
 {
@@ -41,6 +43,19 @@ abstract class DesignStudioCommand extends Command
         if ($defaultAccount) {
             AuthService::instance()->setAccount($defaultAccount);
         }
+    }
+
+    /**
+     * @return Account the account the command runs as
+     * @throws BadRequestException when the application has no account for CLI operations
+     */
+    protected function getCliAccount(): Account
+    {
+        $account = AuthService::instance()->getAccount();
+        if (!$account) {
+            throw new BadRequestException('This command needs the application\'s account for CLI operations (none is configured)');
+        }
+        return $account;
     }
 
     /**

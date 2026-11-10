@@ -158,8 +158,7 @@ trait DesignStudioCommentsControllerTrait
         DesignStudioCommentsService $designStudioCommentsService
     ): DesignStudioCommentGetResponseDto {
         $this->requireDesignStudioViewer();
-        $designStudioCommentsService->throwErrors = true;
-        $designStudioComment = $designStudioCommentsService->find($requestDto->designStudioCommentId);
+        $designStudioComment = $this->findDesignStudioComment($designStudioCommentsService, $requestDto->designStudioCommentId);
         $responseDto = new DesignStudioCommentGetResponseDto();
         $responseDto->designStudioComment = $designStudioCommentsService->reply($designStudioComment, $replyDto->text, DesignStudioComment::AUTHOR_KIND_USER);
         return $responseDto;
@@ -188,8 +187,7 @@ trait DesignStudioCommentsControllerTrait
         DesignStudioCommentsService $designStudioCommentsService
     ): DesignStudioCommentGetResponseDto {
         $this->requireDesignStudioViewer();
-        $designStudioCommentsService->throwErrors = true;
-        $designStudioComment = $designStudioCommentsService->find($requestDto->designStudioCommentId);
+        $designStudioComment = $this->findDesignStudioComment($designStudioCommentsService, $requestDto->designStudioCommentId);
         $responseDto = new DesignStudioCommentGetResponseDto();
         $responseDto->designStudioComment = $designStudioCommentsService->changeComment($designStudioComment, $patchDto->text, $patchDto->isDecision);
         return $responseDto;
@@ -218,8 +216,7 @@ trait DesignStudioCommentsControllerTrait
         DesignStudioCommentsService $designStudioCommentsService
     ): DesignStudioCommentGetResponseDto {
         $this->requireDesignStudioViewer();
-        $designStudioCommentsService->throwErrors = true;
-        $designStudioComment = $designStudioCommentsService->find($requestDto->designStudioCommentId);
+        $designStudioComment = $this->findDesignStudioComment($designStudioCommentsService, $requestDto->designStudioCommentId);
         $responseDto = new DesignStudioCommentGetResponseDto();
         $responseDto->designStudioComment = $designStudioCommentsService->resolveThread(
             $designStudioComment,
@@ -250,8 +247,7 @@ trait DesignStudioCommentsControllerTrait
         DesignStudioCommentsService $designStudioCommentsService
     ): DesignStudioCommentGetResponseDto {
         $this->requireDesignStudioViewer();
-        $designStudioCommentsService->throwErrors = true;
-        $designStudioComment = $designStudioCommentsService->find($requestDto->designStudioCommentId);
+        $designStudioComment = $this->findDesignStudioComment($designStudioCommentsService, $requestDto->designStudioCommentId);
         $responseDto = new DesignStudioCommentGetResponseDto();
         $responseDto->designStudioComment = $designStudioCommentsService->reopenThread($designStudioComment);
         return $responseDto;
@@ -276,8 +272,7 @@ trait DesignStudioCommentsControllerTrait
         DesignStudioCommentsService $designStudioCommentsService
     ): DesignStudioCommentGetResponseDto {
         $this->requireDesignStudioViewer();
-        $designStudioCommentsService->throwErrors = true;
-        $designStudioComment = $designStudioCommentsService->find($requestDto->designStudioCommentId);
+        $designStudioComment = $this->findDesignStudioComment($designStudioCommentsService, $requestDto->designStudioCommentId);
         $responseDto = new DesignStudioCommentGetResponseDto();
         $responseDto->designStudioComment = $designStudioCommentsService->keepThread($designStudioComment);
         return $responseDto;
@@ -305,9 +300,26 @@ trait DesignStudioCommentsControllerTrait
         DesignStudioCommentsService $designStudioCommentsService
     ): DesignStudioDeleteResponseDto {
         $this->requireDesignStudioViewer();
-        $designStudioCommentsService->throwErrors = true;
-        $designStudioComment = $designStudioCommentsService->find($requestDto->designStudioCommentId);
+        $designStudioComment = $this->findDesignStudioComment($designStudioCommentsService, $requestDto->designStudioCommentId);
         $designStudioCommentsService->deleteComment($designStudioComment);
         return new DesignStudioDeleteResponseDto();
+    }
+
+    /**
+     * @param DesignStudioCommentsService $designStudioCommentsService
+     * @param int $designStudioCommentId
+     * @return DesignStudioComment the comment; a missing one is a 404
+     * @throws BadRequestException
+     * @throws InternalErrorException
+     * @throws NotFoundException
+     */
+    protected function findDesignStudioComment(DesignStudioCommentsService $designStudioCommentsService, int $designStudioCommentId): DesignStudioComment
+    {
+        $throwErrorsBefore = $designStudioCommentsService->enableThrowErrors();
+        try {
+            return $designStudioCommentsService->find($designStudioCommentId);
+        } finally {
+            $designStudioCommentsService->restoreThrowErrors($throwErrorsBefore);
+        }
     }
 }

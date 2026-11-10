@@ -7,7 +7,7 @@ namespace DDD\Domain\DesignStudio\Entities\Themes;
 use DDD\Domain\Base\Entities\ValueObject;
 
 /**
- * A look boards can be shown in (e.g. a customer's brand colours), offered by DesignThemeProviderService. Never stored.
+ * A look boards can be shown in (e.g. the colours of one brand), offered by DesignThemeProviderService. Never stored.
  */
 class DesignTheme extends ValueObject
 {

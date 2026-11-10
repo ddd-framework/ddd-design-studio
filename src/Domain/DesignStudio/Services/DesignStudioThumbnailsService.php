@@ -83,24 +83,6 @@ class DesignStudioThumbnailsService extends EntitiesService
     }
 
     /**
-     * @param string $themeHash
-     * @return DesignStudioThumbnail|null the thumbnail stored last in this look (a sign that the renderer is at work)
-     * @throws BadRequestException
-     * @throws InternalErrorException
-     * @throws InvalidArgumentException
-     * @throws ReflectionException
-     */
-    public function findNewestThumbnailOfTheme(string $themeHash): ?DesignStudioThumbnail
-    {
-        $repoClass = $this->getEntityRepoClassInstance();
-        $queryBuilder = $repoClass::createQueryBuilder();
-        $alias = $repoClass::getBaseModelAlias();
-        $queryBuilder->andWhere("$alias.themeHash = :themeHash")->setParameter('themeHash', $themeHash)
-            ->addOrderBy("$alias.id", 'DESC')->setMaxResults(1);
-        return $repoClass->find($queryBuilder, false);
-    }
-
-    /**
      * @param DesignDirectoryBoards $designDirectoryBoards boards of the checkout
      * @param string $themeHash
      * @return DesignStudioThumbnails the existing thumbnails of these board versions in the look

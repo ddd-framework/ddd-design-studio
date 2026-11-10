@@ -34,9 +34,9 @@
 /vendor/
 /bin/
 
-# Assets and user uploads
-/web/bundles/
-/web/uploads/
+# Frontend package
+node_modules/
+/web/dist/
 
 # PHPUnit
 /app/phpunit.xml

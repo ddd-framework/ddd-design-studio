@@ -229,9 +229,10 @@ class DesignStudioCanvasViewsService extends Service
             foreach ($projectDefinition->canvasDefinitions->getElements() as $canvasDefinition) {
                 $designStudioCanvasSummary = new DesignStudioCanvasSummary();
                 $designStudioCanvasSummary->canvasKey = $canvasDefinition->canvasKey;
-                $designStudioCanvasSummary->label = $canvasDefinition->label ?? $canvasDefinition->canvasKey;
+                $designDirectoryCanvas = $this->getDesignDirectoryReaderService()->readCanvas($canvasDefinition);
+                $designStudioCanvasSummary->label = $canvasDefinition->label ?? $designDirectoryCanvas->title ?? $canvasDefinition->canvasKey;
                 $designStudioCanvasSummary->referenceTheme = $canvasDefinition->referenceTheme ?? null;
-                $designStudioCanvasSummary->boardCount = $this->getDesignDirectoryReaderService()->readCanvas($canvasDefinition)->boards->count();
+                $designStudioCanvasSummary->boardCount = $designDirectoryCanvas->boards->count();
                 foreach ($designStudioCommentsService->findForCanvas((string)$canvasDefinition->projectKey, (string)$canvasDefinition->canvasKey)->getElements() as $designStudioComment) {
                     if (!$designStudioComment->isThreadRoot()) {
                         continue;

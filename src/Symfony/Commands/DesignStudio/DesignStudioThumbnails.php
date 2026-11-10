@@ -8,7 +8,6 @@ use DDD\Domain\DesignStudio\Services\DesignDirectoryReaderService;
 use DDD\Domain\DesignStudio\Services\DesignStudioThumbnailRenderRequestsService;
 use DDD\Domain\DesignStudio\Services\DesignStudioThumbnailsService;
 use DDD\Domain\DesignStudio\Services\DesignThemeProviderService;
-use DDD\Infrastructure\Services\AuthService;
 use DDD\Infrastructure\Services\DDDService;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -57,7 +56,7 @@ class DesignStudioThumbnails extends DesignStudioCommand
             substr($themeHash, 0, 10)
         ));
         if ($input->getOption('render') && $boardsWithoutThumbnail->count()) {
-            $renderRequestsService->requestRendering($canvasDefinition, $themeReference, [], AuthService::instance()->getAccount());
+            $renderRequestsService->requestRendering($canvasDefinition, $themeReference, [], $this->getCliAccount());
         }
         $renderRequest = $renderRequestsService->findLatestRequest($canvasDefinition, $themeHash);
         if ($renderRequest) {

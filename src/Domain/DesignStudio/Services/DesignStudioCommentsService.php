@@ -306,6 +306,7 @@ class DesignStudioCommentsService extends EntitiesService
      */
     public function keepThread(DesignStudioComment $designStudioComment): DesignStudioComment
     {
+        $this->requireMayComment(false);
         $rootDesignStudioComment = $this->getThreadRoot($designStudioComment);
         $rootDesignStudioComment->lastActivityAt = new DateTime();
         $rootDesignStudioComment->updatePartialIgnoringRights('lastActivityAt');

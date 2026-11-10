@@ -10,8 +10,8 @@ use DDD\Infrastructure\Services\Service;
 
 /**
  * The looks boards can be shown in. A theme is a `<style data-design-theme>` element with CSS variables that the
- * studio places first in a board's `<head>`, so the board's own styles (`var(--p-500, #…)`) pick it up. The default
- * knows no themes: boards are shown as they are. An application with themes (brand colours per customer, …)
+ * studio places first in a board's `<head>`, so the board's own styles (`var(--accent, #…)`) pick it up. The default
+ * knows no themes: boards are shown as they are. An application with themes (one per brand, per tenant, …)
  * subclasses this service and registers the subclass under this class' service id.
  *
  * A theme reference is `<themeId>` or `<themeId>:<mode>` (mode light or dark), e.g. `brand:1:dark`.
