@@ -115,7 +115,7 @@ All in `DDD\Domain\DesignStudio\Services\` (public via `DesignStudioModule::getP
 - **Thumbnail key:** `sha256(contentHash:themeHash:rendererVersion)`. Nothing is invalidated; a changed input has no
   thumbnail yet.
 - **Render run:** `processRequest()` is one shard of one request. It re-reads the directory, renders with one call in
-  flight (`ArgusDesignBoardRenderedThumbnails::startAll()` / `finishRender()`), hands over to a new message after
+  flight (`ArgusDesignBoardRenderedThumbnails::startRender()` / `finishRender()`), hands over to a new message after
   `RUN_BUDGET_SECONDS`, and never throws for a renderer failure (retryable: wait with backoff; otherwise: `lastError`).
 - **Rights:** `DesignStudioRightsTrait::applyReadRightsQuery()` on all four DB repos denies every row to accounts that
   fail `DesignAccessPolicyService::canView()`. Finer rules are checked in the services (`requireMayComment()`,
