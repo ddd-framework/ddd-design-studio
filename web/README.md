@@ -147,7 +147,7 @@ Inside the package, components read it with `useDesignStudio()` or the narrower 
 ```ts
 const ENVIRONMENT: DesignStudioEnvironment = {
   // …
-  texts: { reload: 'Neu laden (R)', boardsUpdated: count => `${count} aktualisiert` },
+  texts: { reload: 'Refresh (R)', boardsUpdated: count => `${count} screens changed` },
 };
 ```
 
