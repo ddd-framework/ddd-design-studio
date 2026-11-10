@@ -25,55 +25,15 @@ class ArgusDesignBoardRenderedThumbnails extends DesignBoardRenderedThumbnails
 {
     use ArgusTrait;
 
-    /** @var float Longest wait in seconds for the request bodies of a batch to be written before the answers are awaited */
+    /** @var float Longest wait in seconds for the request body to be written before the answer is awaited */
     public const float WRITE_REQUESTS_SECONDS = 30.0;
 
     /** @var bool A call of startRender() is in flight (finishRender() completes it) */
     protected bool $isRenderInFlight = false;
 
     /**
-     * Renders several boards concurrently: every call is sent and fully written first, then the answers are
-     * collected. Each instance keeps its own result / failure.
-     * @param ArgusDesignBoardRenderedThumbnails[] $renderers
-     * @return void
-     */
-    public static function renderAll(array $renderers): void
-    {
-        static::startAll($renderers);
-        static::finishAll($renderers);
-    }
-
-    /**
-     * Sends the calls of every renderer and moves them until their request bodies are written (the service renders
-     * while the caller does other work, e.g. stores the previous batch).
-     * @param ArgusDesignBoardRenderedThumbnails[] $renderers
-     * @return void
-     */
-    public static function startAll(array $renderers): void
-    {
-        foreach ($renderers as $renderer) {
-            $renderer->startRender();
-        }
-        foreach ($renderers as $renderer) {
-            if ($renderer->isRenderInFlight) {
-                $renderer->advanceArgusLoadRequestsUntilWritten(static::WRITE_REQUESTS_SECONDS);
-            }
-        }
-    }
-
-    /**
-     * Waits for the answers of startAll().
-     * @param ArgusDesignBoardRenderedThumbnails[] $renderers
-     * @return void
-     */
-    public static function finishAll(array $renderers): void
-    {
-        foreach ($renderers as $renderer) {
-            $renderer->finishRender();
-        }
-    }
-
-    /**
+     * Sends the call and moves it until its request body is written: the service renders while the caller does other
+     * work (e.g. stores the previous board). finishRender() waits for the answer.
      * @return void
      */
     public function startRender(): void
@@ -86,10 +46,13 @@ class ArgusDesignBoardRenderedThumbnails extends DesignBoardRenderedThumbnails
         $this->isRenderInFlight = $this->sendArgusLoadRequests(useArgusEntityCache: false, useApiACallCache: false);
         if (!$this->isRenderInFlight) {
             $this->markUnanswered();
+            return;
         }
+        $this->advanceArgusLoadRequestsUntilWritten(static::WRITE_REQUESTS_SECONDS);
     }
 
     /**
+     * Waits for the answer of startRender(); the result or the failure is on this instance afterwards.
      * @return void
      */
     public function finishRender(): void

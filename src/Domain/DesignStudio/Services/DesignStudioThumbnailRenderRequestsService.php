@@ -346,7 +346,7 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
         $renderer->height = max(1, (int)$designDirectoryBoard->height);
         $renderer->themeHash = $themeHash;
         $renderer->themeStyle = $themeStyle ?? '';
-        ArgusDesignBoardRenderedThumbnails::startAll([$renderer]);
+        $renderer->startRender();
         return $renderer;
     }
 
