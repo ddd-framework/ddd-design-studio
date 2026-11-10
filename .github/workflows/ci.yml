@@ -25,7 +25,11 @@ jobs:
           coverage: none
           tools: composer:v2
       # A library is installed by its consumers without this lock: resolve fresh for each PHP version.
+      # The framework core still requires firebase/php-jwt ^6.10, whose releases carry an advisory; a fresh resolution
+      # is blocked by it. Remove the variable once the core allows a fixed version.
       - run: composer update --no-interaction --no-progress --prefer-dist
+        env:
+          COMPOSER_NO_SECURITY_BLOCKING: 1
       - run: vendor/bin/phpunit
 
   web:
