@@ -19,6 +19,9 @@ class DesignStudioCanvasView extends ValueObject
     /** @var string|null Key of the canvas within the project */
     public ?string $canvasKey = null;
 
+    /** @var string|null What every board code of the canvas starts with (`APP ONB`), null when the canvas has no code */
+    public ?string $code = null;
+
     /** @var string|null Name of the canvas */
     public ?string $label = null;
 

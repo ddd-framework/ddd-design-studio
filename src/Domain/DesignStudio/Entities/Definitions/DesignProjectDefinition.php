@@ -20,6 +20,9 @@ class DesignProjectDefinition extends ValueObject
     /** @var string|null URL segment below the studio route */
     public ?string $path = null;
 
+    /** @var string|null Short code of the project (`APP`), first part of every board code; null = none */
+    public ?string $code = null;
+
     /** @var DesignCanvasDefinitions|null The project's canvases */
     public ?DesignCanvasDefinitions $canvasDefinitions = null;
 }

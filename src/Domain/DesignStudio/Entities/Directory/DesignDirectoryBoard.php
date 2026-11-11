@@ -15,6 +15,9 @@ class DesignDirectoryBoard extends ValueObject
     /** @var string|null File name of the board in the canvas folder = its key in canvas.json */
     public ?string $boardKey = null;
 
+    /** @var string|null Short code of the board (`APP ONB-W2`, DesignBoardCodesService), null when it has none */
+    public ?string $code = null;
+
     /** @var string|null Title from canvas.json */
     public ?string $title = null;
 

@@ -23,6 +23,7 @@ use JsonException;
  * written to the database, so several checkouts on one database never overwrite or delete each other's boards.
  *
  * - A board's version is the git blob hash of its file content, computed from the file (no `.git` needed).
+ * - A board's code (`APP ONB-W2`) comes from the canvas code and its file name or its `code` (DesignBoardCodesService).
  * - Notes are section titles; a board belongs to the nearest section title above it; titles without a board are left
  *   out; positions are shifted so the selection starts at 0 / 0.
  * - Hashes are cached per file by modification time and size, so an unchanged canvas is read without opening its
@@ -93,6 +94,12 @@ class DesignDirectoryReaderService extends Service
         if (!$designDirectoryBoards->count()) {
             return $designDirectoryCanvas;
         }
+        /** @var DesignBoardCodesService $designBoardCodesService */
+        $designBoardCodesService = DDDService::instance()->getService(DesignBoardCodesService::class);
+        array_push(
+            $designDirectoryCanvas->warnings,
+            ...$designBoardCodesService->assignCodes($designDirectoryBoards, $canvasDescription['boards'], $canvasDefinition)
+        );
         $designDirectorySections = $this->selectSections($canvasDescription, $canvasDefinition);
         $this->assignBoardsToSections($designDirectoryBoards, $designDirectorySections);
         $usedSectionKeys = [];

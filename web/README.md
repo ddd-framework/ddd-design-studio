@@ -103,9 +103,10 @@ Pass one stable object (a module constant) to `DesignStudioProvider`. Entries na
 | `api` | `DesignStudioApi` | the hooks from `createDesignStudioApi` |
 | `apiBaseUrl` | `string` | origin prefixed to the delivery URLs of boards and thumbnails; `''` = same origin |
 | `router.Link` | component `{ href, className, children }` | in-app link |
-| `router.useSearchParams` | `() => { get(key) }` | the current search parameters (reactive); the canvas reads `?board=` |
+| `router.useSearchParams` | `() => { get(key) }` | the current search parameters (reactive); the canvas reads `?board=` and `?code=`, the overview `?code=` |
 | `router.useSearchParamsWriter` | `() => (updates) => void` | replaces search parameters of the current page: no history entry, no scroll jump, other parameters kept, same-tick writes merged; `null` removes one |
 | `router.useUrlState` | `(keys, { stateId, debounceMs, uncounted }) => { values, debounced, setValue }` | the canvas state (`q`, `section`, `status`, `theme`, `mode`, `vp`) in the URL, restored from what the application remembered under `stateId` when the URL has none of the keys |
+| `router.useNavigate` (optional) | `() => (href) => void` | client navigation to an in-app path (query allowed, with a history entry); the overview uses it to open a board code; without it the overview shows a link to click |
 | `paths` | `overview()`, `project(projectKey)`, `canvas(projectKey, canvasKey)` | in-app paths of the studio's pages |
 | `components` | `DesignStudioComponents` | UI slots: `Button`, `Badge`, `Card`, `CardHeader`, `CardTitle`, `CardContent`, `Skeleton`, `Checkbox`, `Label`, `Textarea`, `Dialog`, `DialogContent`, `DialogTitle`, `DialogDescription`, `Popover`, `PopoverTrigger`, `PopoverContent`, `Tooltip`, `TooltipTrigger`, `TooltipContent`, `DropdownMenu`, `DropdownMenuTrigger`, `DropdownMenuContent`, `DropdownMenuItem`, `DropdownMenuSeparator`, `Combobox`, `SearchField`, `QuickFilterPills`, `StatusBadge`, `PageHeader`, `StatusCallout`, `CardGrid`, `PageSections` — each typed with only the props the studio passes ([`src/provider/types.ts`](src/provider/types.ts), interface `DesignStudioComponents`) |
 | `notify` | `success(message)`, `error(message)`, `info(message, { id, action })` | toasts |
@@ -143,6 +144,9 @@ Inside the package, components read it with `useDesignStudio()` or the narrower 
 | `themeWithoutDarkMode` | `This theme has no dark mode` |
 | `thumbnailMissing` | `No thumbnail yet` |
 | `referenceNotePlaceholder` | `What should change? (optional, goes into the reference)` |
+| `boardCodeNotFound(code)` | `No board has the code <code>` |
+| `boardLinkCopied(code)` | `Link to <code> copied` |
+| `copyBoardLink` | `Copy link` |
 
 ```ts
 const ENVIRONMENT: DesignStudioEnvironment = {
@@ -166,7 +170,7 @@ The package has no router. The application creates one page per screen and tells
 | reviews (optional; an empty state in this version) | `DesignStudioReviewsScreen` | none: linked by the application's own navigation |
 
 The canvas page keeps its state in search parameters: `board` (the focus view), `q`, `section`, `status`, `theme`,
-`mode`, `vp`. Project and canvas keys in a URL should be validated by the application before a screen is rendered.
+`mode`, `vp`. `code` opens a board by its code (see Board codes) and is removed from the URL once handled. Project and canvas keys in a URL should be validated by the application before a screen is rendered.
 
 ## Wiring with the Next.js App Router
 
@@ -317,6 +321,20 @@ export default async function DesignCanvasPage({
   );
 }
 ```
+
+## Board codes
+
+A canvas with a `code` in the backend config gives every board a short code (`APP ONB-W2`: project code, canvas code,
+board part from the file name or `canvas.json`). The code is shown in the board header and in the selected board's
+panel, the canvas search finds boards by it (`w2`, `ONB-W2`), and references carry it (`code APP ONB-W2`).
+
+- **Code link of a canvas:** `<canvas page>?code=APP-ONB-W2` (also `ONB-W2` or `W2`). The canvas moves the view to the
+  board, selects it and shows its panel; the parameter is then removed (a reload keeps the place the viewer moved to).
+  "Copy link" in the panel copies this link with the current look.
+- **Short link:** `<overview page>?code=APP-ONB-W2` finds the canvas by the code and opens it there (needs
+  `router.useNavigate`; without it the overview shows a link). The overview also has a field to type a code.
+- Helpers (pure, exported from the main entry): `boardCodeMatches`, `findBoardForCode`, `codeBelongsToCanvas`,
+  `buildBoardCodeLink`, `boardCodeUrlValue`, `normalizeBoardCode`, `CODE_PARAM`.
 
 ## Reference helpers
 

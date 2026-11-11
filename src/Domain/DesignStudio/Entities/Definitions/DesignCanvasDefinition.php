@@ -32,4 +32,22 @@ class DesignCanvasDefinition extends ValueObject
 
     /** @var string|null Theme id + mode the canvas is designed in (DesignThemeProviderService), e.g. `brand:2:light` */
     public ?string $referenceTheme = null;
+
+    /** @var string|null Short code of the project (`APP`), null = none; first part of every board code */
+    public ?string $projectCode = null;
+
+    /** @var string|null Short code of the canvas (`ONB`), null = the canvas' boards have no code prefix */
+    public ?string $code = null;
+
+    /**
+     * @return string|null what every board code of the canvas starts with: `APP ONB`, `ONB` without a project code,
+     *                     null when the canvas has no code
+     */
+    public function getCodePrefix(): ?string
+    {
+        if ($this->code === null) {
+            return null;
+        }
+        return $this->projectCode !== null ? $this->projectCode . ' ' . $this->code : $this->code;
+    }
 }

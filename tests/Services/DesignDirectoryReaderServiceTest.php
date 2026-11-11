@@ -136,6 +136,16 @@ class DesignDirectoryReaderServiceTest extends TestCase
         $this->assertStringContainsString('a-large.dc.html', $designDirectoryCanvas->warnings[1]);
     }
 
+    public function testBoardsCarryTheirCodes(): void
+    {
+        $this->writeCanvas();
+        $canvasDefinition = $this->createCanvasDefinition();
+        $canvasDefinition->projectCode = 'APP';
+        $canvasDefinition->code = 'A';
+        $boards = $this->createService()->readCanvas($canvasDefinition)->boards->getElements();
+        $this->assertSame(['APP A-1', 'APP A-2', 'APP A-3'], array_map(fn($board) => $board->code, $boards));
+    }
+
     public function testContentHashIsTheGitBlobHash(): void
     {
         $this->writeCanvas();

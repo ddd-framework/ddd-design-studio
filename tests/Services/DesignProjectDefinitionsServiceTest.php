@@ -78,4 +78,38 @@ class DesignProjectDefinitionsServiceTest extends TestCase
             'no folder' => [[['key' => 'app', 'canvases' => [['key' => 'one']]]]],
         ];
     }
+
+    public function testReadsProjectAndCanvasCodes(): void
+    {
+        $service = $this->createService([[
+            'key' => 'app',
+            'code' => 'app',
+            'canvases' => [
+                ['key' => 'onboarding', 'folder' => 'design/onboarding', 'code' => 'onb'],
+                ['key' => 'plain', 'folder' => 'design/plain'],
+            ],
+        ]]);
+        $canvasDefinition = $service->getCanvasDefinition('app', 'onboarding');
+        $this->assertSame(['APP', 'ONB', 'APP ONB'], [$canvasDefinition->projectCode, $canvasDefinition->code, $canvasDefinition->getCodePrefix()]);
+        $this->assertNull($service->getCanvasDefinition('app', 'plain')->getCodePrefix());
+    }
+
+    public function testRefusesInvalidAndSharedCodes(): void
+    {
+        foreach ([
+            [['key' => 'app', 'code' => '1A', 'canvases' => []]],
+            [['key' => 'app', 'canvases' => [['key' => 'c', 'folder' => 'd', 'code' => 'O N']]]],
+            [
+                ['key' => 'one', 'code' => 'APP', 'canvases' => [['key' => 'c', 'folder' => 'd', 'code' => 'ONB']]],
+                ['key' => 'two', 'code' => 'APP', 'canvases' => [['key' => 'c', 'folder' => 'd', 'code' => 'onb']]],
+            ],
+        ] as $projectsConfig) {
+            try {
+                $this->createService($projectsConfig)->getProjectDefinitions();
+                $this->fail('expected a BadRequestException for ' . json_encode($projectsConfig));
+            } catch (BadRequestException) {
+                $this->addToAssertionCount(1);
+            }
+        }
+    }
 }

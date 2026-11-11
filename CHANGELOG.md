@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.0
+
+- **Board codes:** a project and a canvas may set `code` in `DesignStudio.projects`; the boards of such a canvas get a
+  short code `<project code> <canvas code>-<board part>` (`APP ONB-W2`), the board part from `code` in `canvas.json` or
+  derived from the file name (`DesignBoardCodesService`; duplicates lose their code with a warning). New fields:
+  `DesignStudioBoardView.code`, `DesignStudioCanvasView.code`, `DesignStudioCanvasSummary.code`.
+- **Code links:** `<canvas page>?code=APP-ONB-W2` (also `ONB-W2`, `W2`) moves the canvas to the board, selects it and
+  shows its panel; `<overview page>?code=…` finds the canvas first. The board header and panel show the code, "Copy
+  link" copies the code link, the canvas search finds boards by code, design references carry `code …`.
+- **Frontend contract:** optional `router.useNavigate` (overview opens a code); texts `boardCodeNotFound`,
+  `boardLinkCopied`, `copyBoardLink`; helpers `boardCodeMatches`, `findBoardForCode`, `codeBelongsToCanvas`,
+  `buildBoardCodeLink`, `boardCodeUrlValue`, `normalizeBoardCode`, `CODE_PARAM`.
+- **Console:** `app:design-studio:show` lists codes; `--board` takes a code, and a full code needs no project / canvas.
+
 ## 0.1.0
 
 Initial release. Requires `mgamadeus/ddd` ^3.15.3 and `mgamadeus/ddd-argus` ^1.3.3.

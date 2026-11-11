@@ -4,6 +4,7 @@ import { normalizeDddError } from '@mgamadeus/ddd-web/api';
 import {
   ClipboardCopy,
   ImageDown,
+  Link2,
   ListFilter,
   LoaderCircle,
   Maximize,
@@ -25,6 +26,7 @@ import { cx } from '../utils/cx';
 import { BoardComments, buildCommentThreads, type CommentThread } from './BoardComments';
 import { BoardFocusView } from './BoardFocusView';
 import { BoardStatusChips } from './BoardStatusChips';
+import { buildBoardCodeLink, CODE_PARAM, findBoardForCode, normalizeBoardCode } from './boardCode';
 import { LIVE_MIN_RENDERED_WIDTH_RATIO, LIVE_MIN_RENDERED_WIDTH_RATIO_WITHOUT_THUMBNAILS } from './boardDetail';
 import { boardStatusLabel } from './boardStatus';
 import { computeCanvasLayout } from './canvasLayout';
@@ -150,6 +152,7 @@ const SelectedBoardPanel = ({
   threads,
   writesAllowed,
   onOpen,
+  onCopyLink,
   onStatusChanged,
   onCopyThreadReference,
 }: {
@@ -161,14 +164,18 @@ const SelectedBoardPanel = ({
   threads: CommentThread[];
   writesAllowed: boolean;
   onOpen: () => void;
+  /** Copies the code link of the board; absent when the board has no code. */
+  onCopyLink?: () => void;
   onStatusChanged: (status: string) => void;
   onCopyThreadReference: (thread: CommentThread) => void;
 }) => {
   const { Button } = useDesignStudioComponents();
+  const texts = useDesignStudioTexts();
   const [showResolved, setShowResolved] = useState(false);
   return (
     <div className="space-y-5">
       <div className="space-y-1">
+        {board.code && <p className="text-sm font-semibold tabular-nums text-foreground/70">{board.code}</p>}
         <h2 className="text-title-card font-semibold break-words">{board.title}</h2>
         <p className="text-xs text-muted-foreground">
           {sectionTitle ? `${sectionTitle} · ` : ''}
@@ -183,9 +190,16 @@ const SelectedBoardPanel = ({
         writesAllowed={writesAllowed}
         onStatusChanged={onStatusChanged}
       />
-      <Button variant="outline" className="w-full" onClick={onOpen}>
-        <Maximize2 /> Open focus view
-      </Button>
+      <div className="flex gap-2">
+        <Button variant="outline" className="flex-1" onClick={onOpen}>
+          <Maximize2 /> Open focus view
+        </Button>
+        {onCopyLink && (
+          <Button variant="outline" onClick={onCopyLink} aria-label={`${texts.copyBoardLink}: ${board.code ?? ''}`}>
+            <Link2 /> {texts.copyBoardLink}
+          </Button>
+        )}
+      </div>
       {board.contentHash && (
         <p className="text-xs text-muted-foreground" title={`Content hash of the board file: ${board.contentHash}`}>
           Version <span className="font-mono">{shortContentHash(board.contentHash)}</span>
@@ -284,7 +298,11 @@ export const DesignStudioCanvasScreen = ({ projectKey, canvasKey }: DesignStudio
   useCollapsedSidebarWhileMounted(shell?.useSidebarCollapsed);
   const debouncedSearch = canvasState.debounced.q;
   // The viewport as saved (`?vp=`, or this tab's saved canvas state): the first view returns there instead of fitting.
-  const [initialViewport] = useState<CanvasViewport | null>(() => parseViewportParam(canvasState.values.vp));
+  // A code link (`?code=`) at load: the first view goes to that board instead of the saved place.
+  const [codeAtLoad] = useState(() => searchParams.get(CODE_PARAM));
+  const [initialViewport] = useState<CanvasViewport | null>(() =>
+    codeAtLoad ? null : parseViewportParam(canvasState.values.vp)
+  );
   // A filter present at load with a saved viewport: the saved place wins over fitting the matches once.
   const [hasInitialFilterWithViewport] = useState(
     () =>
@@ -556,6 +574,8 @@ export const DesignStudioCanvasScreen = ({ projectKey, canvasKey }: DesignStudio
 
   const matchingBoardIds = useMemo(() => {
     const searchText = debouncedSearch.trim().toLowerCase();
+    // `w2`, `ONB-W2`, `APP ONB-W2` find the board by its code
+    const searchCode = normalizeBoardCode(searchText);
     if (!searchText && !sectionFilter && !statusFilter) return null;
     const matching = new Set<string>();
     for (const board of boards) {
@@ -564,7 +584,8 @@ export const DesignStudioCanvasScreen = ({ projectKey, canvasKey }: DesignStudio
       if (
         searchText &&
         !(board.title ?? '').toLowerCase().includes(searchText) &&
-        !(board.boardKey ?? '').toLowerCase().includes(searchText)
+        !(board.boardKey ?? '').toLowerCase().includes(searchText) &&
+        !(searchCode && normalizeBoardCode(board.code ?? '').includes(searchCode))
       ) {
         continue;
       }
@@ -655,6 +676,33 @@ export const DesignStudioCanvasScreen = ({ projectKey, canvasKey }: DesignStudio
     if (!initialViewport) requestFit([nodeId]);
   }, [boardParam, boards.length, boardsByNodeId, requestFit, initialViewport]);
 
+  // Code link: ?code=<board code> (`APP-ONB-W2`, `ONB-W2`, `W2`) moves the view to that board, selects it and shows
+  // its panel. The code at load is the first view itself (initialFitNodeIds); a later one (an in-app link) fits now.
+  // The parameter is removed once handled: a reload keeps the place the user moved to.
+  const codeParam = searchParams.get(CODE_PARAM);
+  const handledCodeRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!codeParam) {
+      // handled and removed: the same code may come again (another link) and is then handled anew
+      if (handledCodeRef.current !== null) handledCodeRef.current = '';
+      return;
+    }
+    if (boards.length === 0 || handledCodeRef.current === codeParam) return;
+    const isFirstView = handledCodeRef.current === null && codeParam === codeAtLoad;
+    handledCodeRef.current = codeParam;
+    writeSearchParams({ [CODE_PARAM]: null });
+    const board = findBoardForCode(boards, codeParam);
+    if (!board?.boardKey) {
+      notify.error(texts.boardCodeNotFound(codeParam));
+      return;
+    }
+    const nodeId = boardNodeId(board.boardKey);
+    setSelectedBoardId(nodeId);
+    setSelectedBoardIds(new Set([nodeId]));
+    setIsCommentsPanelOpen(true);
+    if (!isFirstView) requestFit([nodeId]);
+  }, [codeParam, codeAtLoad, boards, writeSearchParams, notify, texts, requestFit]);
+
   const stepFocus = useCallback(
     (step: number) => {
       if (!focusedBoardId || navigationOrder.length === 0) return;
@@ -711,6 +759,7 @@ export const DesignStudioCanvasScreen = ({ projectKey, canvasKey }: DesignStudio
         canvasKey,
         boardTitle: board.title ?? board.boardKey,
         boardKey: board.boardKey,
+        boardCode: board.code ?? null,
         contentHash: board.contentHash ?? null,
         themeReference: shownThemeReference,
         url: buildBoardDeepLink(
@@ -751,6 +800,19 @@ export const DesignStudioCanvasScreen = ({ projectKey, canvasKey }: DesignStudio
         }),
       ]),
     [copyReferences, buildReferenceFor]
+  );
+
+  const copyBoardLink = useCallback(
+    async (board: DesignStudioBoardView) => {
+      if (!board.code || typeof window === 'undefined') return;
+      const link = buildBoardCodeLink(window.location.href, board.code, shownLook?.themeId ?? null, shownLook?.mode ?? 'light');
+      if (await copyTextToClipboard(link)) {
+        notify.success(texts.boardLinkCopied(board.code));
+      } else {
+        notify.error('Could not copy to the clipboard');
+      }
+    },
+    [shownLook, notify, texts]
   );
 
   // Live update: one revision for boards, comments and statuses — a change refetches the canvas and the comments.
@@ -850,10 +912,14 @@ export const DesignStudioCanvasScreen = ({ projectKey, canvasKey }: DesignStudio
   const threadsOf = (nodeId: string | null): CommentThread[] =>
     nodeId ? buildCommentThreads(commentsByBoardNodeId.get(nodeId) ?? []) : [];
   const boardsWithOpenThreads = layoutOrder.filter(nodeId => openThreadCounts.has(nodeId));
-  const initialFitNodeIds = useMemo(
-    () => (layout.sections[0] ? [sectionNodeId(layout.sections[0].id)] : []),
-    [layout]
+  const codeAtLoadBoard = useMemo(
+    () => (codeAtLoad ? findBoardForCode(boards, codeAtLoad) : null),
+    [codeAtLoad, boards]
   );
+  const initialFitNodeIds = useMemo(() => {
+    if (codeAtLoadBoard?.boardKey) return [boardNodeId(codeAtLoadBoard.boardKey)];
+    return layout.sections[0] ? [sectionNodeId(layout.sections[0].id)] : [];
+  }, [layout, codeAtLoadBoard]);
   const sectionOptions = layout.sections.map(section => ({ value: section.id, label: section.title }));
   const presentedSectionTitle = presentSectionId
     ? (layout.sections.find(section => section.id === presentSectionId)?.title ?? null)
@@ -1155,6 +1221,7 @@ export const DesignStudioCanvasScreen = ({ projectKey, canvasKey }: DesignStudio
                   threads={threadsOf(selectedBoardId)}
                   writesAllowed={writesAllowed}
                   onOpen={() => selectedBoardId && openBoardFromCanvas(selectedBoardId)}
+                  onCopyLink={selectedBoard.code ? () => void copyBoardLink(selectedBoard) : undefined}
                   onStatusChanged={status => selectedBoardId && setBoardStatus(selectedBoardId, status)}
                   onCopyThreadReference={copyThreadReference}
                 />

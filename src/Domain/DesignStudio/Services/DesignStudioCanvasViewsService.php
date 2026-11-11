@@ -130,6 +130,7 @@ class DesignStudioCanvasViewsService extends Service
         $designStudioCanvasView->projectKey = $projectKey;
         $designStudioCanvasView->canvasKey = $canvasKey;
         $designStudioCanvasView->label = $canvasDefinition->label ?? $designDirectoryCanvas->title ?? $canvasKey;
+        $designStudioCanvasView->code = $canvasDefinition->getCodePrefix();
         $designStudioCanvasView->themeReference = $themeReference;
         $designStudioCanvasView->referenceTheme = $canvasDefinition->referenceTheme ?? null;
         $designStudioCanvasView->sections = $designDirectoryCanvas->sections;
@@ -142,6 +143,7 @@ class DesignStudioCanvasViewsService extends Service
             $designStudioBoardStatus = $statusesByBoardKey[$boardKey] ?? null;
             $designStudioBoardView = new DesignStudioBoardView();
             $designStudioBoardView->boardKey = $boardKey;
+            $designStudioBoardView->code = $designDirectoryBoard->code;
             $designStudioBoardView->title = $designDirectoryBoard->title;
             $designStudioBoardView->x = $designDirectoryBoard->x;
             $designStudioBoardView->y = $designDirectoryBoard->y;
@@ -232,6 +234,7 @@ class DesignStudioCanvasViewsService extends Service
                 $designDirectoryCanvas = $this->getDesignDirectoryReaderService()->readCanvas($canvasDefinition);
                 $designStudioCanvasSummary->label = $canvasDefinition->label ?? $designDirectoryCanvas->title ?? $canvasDefinition->canvasKey;
                 $designStudioCanvasSummary->referenceTheme = $canvasDefinition->referenceTheme ?? null;
+                $designStudioCanvasSummary->code = $canvasDefinition->getCodePrefix();
                 $designStudioCanvasSummary->boardCount = $designDirectoryCanvas->boards->count();
                 foreach ($designStudioCommentsService->findForCanvas((string)$canvasDefinition->projectKey, (string)$canvasDefinition->canvasKey)->getElements() as $designStudioComment) {
                     if (!$designStudioComment->isThreadRoot()) {

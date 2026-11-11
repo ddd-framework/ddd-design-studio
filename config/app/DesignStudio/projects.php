@@ -14,6 +14,7 @@ declare(strict_types=1);
  *             'key' => 'app',                      // project key (URL segment)
  *             'label' => 'App',
  *             'path' => 'app',
+ *             'code' => 'APP',                     // optional: first part of every board code (`APP ONB-W2`)
  *             'canvases' => [
  *                 [
  *                     'key' => 'onboarding',       // canvas key (URL segment)
@@ -22,6 +23,7 @@ declare(strict_types=1);
  *                     'boards' => ['*'],           // file-name patterns of the boards on this canvas
  *                     'sections' => ['*'],         // key patterns of the title notes that are sections
  *                     'referenceTheme' => null,    // `<themeId>:<mode>` the canvas is designed in, or null
+ *                     'code' => 'ONB',             // optional: board codes `APP ONB-W2` (DesignBoardCodesService)
  *                 ],
  *             ],
  *         ],

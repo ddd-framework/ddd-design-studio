@@ -15,6 +15,9 @@ class DesignStudioBoardView extends ValueObject
     /** @var string|null File name of the board in the canvas folder */
     public ?string $boardKey = null;
 
+    /** @var string|null Short code of the board (`APP ONB-W2`): names it in chats and opens it on the canvas, null = none */
+    public ?string $code = null;
+
     /** @var string|null Board title */
     public ?string $title = null;
 

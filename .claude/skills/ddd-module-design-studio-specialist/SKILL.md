@@ -1,9 +1,9 @@
 ---
 name: ddd-module-design-studio-specialist
-description: "Installs, wires and operates the ddd-design-studio module, a design review studio that shows the HTML design boards of a checkout on a canvas. Covers the directory model (canvas.json plus board files, version = git blob hash), config DesignStudio projects, api, content, statuses, retention, storage, renderer, thin controllers on the three controller traits, the public content route and its token, object storage for snapshots and thumbnails, the optional thumbnail renderer with Messenger handler, transport and worker, binding DesignAccessPolicyService and DesignThemeProviderService, and the console commands app:design-studio:show, comments, comments-poll, decisions, status, theme, thumbnails, prune. Use when installing the design studio, adding a project or canvas, reading or answering design comments as an agent, resolving threads, setting a board status, requesting thumbnails, or debugging an empty canvas, a missing board, No handler for message, thumbnails that never appear or a 404 on board content."
+description: "Installs, wires and operates the ddd-design-studio module, a design review studio that shows the HTML design boards of a checkout on a canvas. Covers the directory model (canvas.json plus board files, version = git blob hash), config DesignStudio projects, api, content, statuses, retention, storage, renderer, thin controllers on the three controller traits, the public content route and its token, object storage, the optional thumbnail renderer with Messenger handler and worker, binding DesignAccessPolicyService and DesignThemeProviderService, board codes (APP ONB-W2) and code links, and the console commands app:design-studio:show, comments, comments-poll, decisions, status, theme, thumbnails, prune. Use when installing the studio, adding a project or canvas, giving boards codes or linking to a board, answering design comments as an agent, setting a board status, requesting thumbnails, or debugging an empty canvas, a missing board, No handler for message, missing thumbnails or a 404 on board content."
 metadata:
   author: mgamadeus
-  version: "0.1.0"
+  version: "0.2.0"
   module: mgamadeus/ddd-design-studio
 ---
 
@@ -109,6 +109,7 @@ return [
         'key' => 'app',
         'label' => 'App',
         'path' => 'app',
+        'code' => 'APP',                           // optional: first part of every board code
         'canvases' => [
             [
                 'key' => 'onboarding',
@@ -117,6 +118,7 @@ return [
                 'boards' => ['*'],                 // fnmatch patterns of board file names
                 'sections' => ['*'],               // fnmatch patterns of note keys that are section titles
                 'referenceTheme' => null,          // e.g. 'brand:1' or 'brand:1:dark'
+                'code' => 'ONB',                   // optional: board codes `APP ONB-W2`
             ],
         ],
     ],
@@ -127,6 +129,15 @@ return [
   invalid key or folder fails every request with a `BadRequestException` ("Design studio config: …").
 - `boards` empty = every board of `canvas.json`. Several canvases may share one folder and split it by patterns.
 - `sections` empty = every note whose `kind` starts with `title`.
+- `code` (project and canvas, optional): 1–12 letters and digits starting with a letter, stored in upper case. A canvas
+  with a code gives its boards **board codes** `<project code> <canvas code>-<board part>` (`APP ONB-W2`). The board
+  part is `code` of the board in `canvas.json`, else derived from the file name: without `.html` / `.dc.html`, split at
+  `-` / `_`, a first part equal to the canvas code left out, then the parts up to and including the first one with a
+  digit, in upper case (`onb-w-2-welcome.dc.html` → `W2`, `onb-s01-start.html` → `S01`). No digit → no code; two
+  boards with the same board part both lose it (warning). Two canvases may not share `<project code> <canvas code>`.
+  Codes are read like the rest of the directory (`DesignBoardCodesService`), never stored; renaming a file can change
+  its code. Links: `<canvas page>?code=APP-ONB-W2` moves the canvas to the board and selects it; `<overview
+  page>?code=APP-ONB-W2` finds the canvas first.
 - Keys are part of the stored review state. Renaming a project or canvas key, or a board file, detaches existing
   comments and statuses from it.
 
@@ -154,6 +165,7 @@ php bin/console app:design-studio:show                                  # projec
 php bin/console app:design-studio:show app onboarding                   # boards by section: version, status, open threads
 php bin/console app:design-studio:show app onboarding --open            # only boards with open threads
 php bin/console app:design-studio:show app onboarding --board=welcome.html   # one board with its threads
+php bin/console app:design-studio:show --board="APP ONB-W2"            # one board by its code (project and canvas found by it)
 ```
 
 Warnings of the directory read are printed at the end of the canvas listing.

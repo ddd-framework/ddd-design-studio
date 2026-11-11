@@ -3,7 +3,7 @@
 Design review studio for the `mgamadeus/ddd` framework -- shows the design boards of a checkout on a canvas, with
 comment threads, review statuses, decisions and optional thumbnails.
 
-**Package:** `mgamadeus/ddd-design-studio` (v0.1.x); frontend: npm `@mgamadeus/ddd-design-studio` in `web/` (same version)
+**Package:** `mgamadeus/ddd-design-studio` (v0.2.x); frontend: npm `@mgamadeus/ddd-design-studio` in `web/` (same version)
 **Namespace:** `DDD\`
 **Depends on:** `mgamadeus/ddd` (^3.15.3), `mgamadeus/ddd-argus` (^1.3.3)
 
@@ -89,7 +89,8 @@ All in `DDD\Domain\DesignStudio\Services\` (public via `DesignStudioModule::getP
 
 | Service | Responsibility |
 |---------|----------------|
-| `DesignProjectDefinitionsService` | reads and validates `DesignStudio.projects` (`KEY_PATTERN`, folder rules); `getProjectDefinitions()`, `getProjectDefinition()`, `getCanvasDefinition()` |
+| `DesignProjectDefinitionsService` | reads and validates `DesignStudio.projects` (`KEY_PATTERN`, folder rules, project / canvas `code` by `CODE_PATTERN`, unique code prefixes); `getProjectDefinitions()`, `getProjectDefinition()`, `getCanvasDefinition()` |
+| `DesignBoardCodesService` | board codes (`APP ONB-W2`): `deriveBoardPart()`, `assignCodes()` (called by the reader), `findBoardByCode()`, static `normalizeCode()` / `codeMatches()` |
 | `DesignDirectoryReaderService` | reads a canvas folder: `readCanvas()`, `readBoardContent()`, `isBoardKeyOfCanvas()`, static `computeContentHash()`; per-folder hash cache validated by mtime and size |
 | `DesignStudioCanvasViewsService` | joins directory and review state: `getOverview()`, `getCanvasView()`, `getRevision()`, `getCanvasDefinition()` / `getDirectoryBoard()` (both throw `NotFoundException`), `getContentBasePath()` |
 | `DesignStudioCommentsService` (EntitiesService) | threads: `findForCanvas()`, `createThread()`, `reply()`, `changeComment()`, `resolveThread()`, `reopenThread()`, `keepThread()`, `deleteComment()`, `getCanvasFingerprint()`; retention: `findExpiringThreads()`, `pruneExpiredThreads()`, `pruneExpiredThreadsIfDue()` |

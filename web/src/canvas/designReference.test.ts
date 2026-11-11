@@ -23,6 +23,11 @@ describe('buildDesignReference', () => {
     );
   });
 
+  it('names the board code before the file', () => {
+    const reference = buildDesignReference({ ...base, boardCode: 'APP ONB-W2' });
+    assert.ok(reference.startsWith('[design-ref] App › Onboarding – first run › 2 Welcome · code APP ONB-W2 · file welcome-2.dc.html · '));
+  });
+
   it('names a board without a theme and without a known version', () => {
     const reference = buildDesignReference({ ...base, contentHash: null, themeReference: null });
     assert.ok(reference.includes(' · v? · theme none · https://'));

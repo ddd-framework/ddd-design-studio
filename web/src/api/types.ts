@@ -103,6 +103,8 @@ export interface DesignDirectorySections {
 export interface DesignStudioBoardView {
   /** File name of the board in the canvas folder */
   boardKey?: string | null;
+  /** Short code of the board (`APP ONB-W2`): names it in chats and opens it on the canvas, null = none */
+  code?: string | null;
   /** Board title */
   title?: string | null;
   /** Left edge, relative to the canvas selection */
@@ -143,6 +145,8 @@ export interface DesignStudioBoardViews {
 export interface DesignStudioCanvasView {
   projectKey?: string | null;
   canvasKey?: string | null;
+  /** What every board code of the canvas starts with (`APP ONB`), null when the canvas has no code */
+  code?: string | null;
   /** Name of the canvas */
   label?: string | null;
   /** Reference of the theme the delivery URLs and thumbnails are in, null = no theme */
@@ -170,6 +174,8 @@ export interface DesignStudioCanvasView {
 
 export interface DesignStudioCanvasSummary {
   canvasKey?: string | null;
+  /** What every board code of the canvas starts with (`APP ONB`), null when the canvas has no code */
+  code?: string | null;
   /** Name of the canvas */
   label?: string | null;
   /** Reference of the theme the canvas names as its usual look */

@@ -61,6 +61,12 @@ export interface DesignStudioRouter {
    * `keys` is a module constant.
    */
   useUrlState: <K extends string>(keys: readonly K[], options: DesignStudioUrlStateOptions) => DesignStudioUrlState<K>;
+  /**
+   * Optional: a function that navigates to an in-app path (as `paths` builds it, query string allowed; client
+   * navigation with a history entry). The overview uses it to open a board code; without it the overview shows a link
+   * to click instead.
+   */
+  useNavigate?: () => (href: string) => void;
 }
 
 // --- paths ----------------------------------------------------------------------------------------------------------
@@ -311,6 +317,12 @@ export interface DesignStudioTexts {
   thumbnailMissing: string;
   /** Placeholder of the note field in the focus view's reference panel. */
   referenceNotePlaceholder: string;
+  /** Toast of a code link (`?code=`) or a pasted code that names no board (`code` = what was given). */
+  boardCodeNotFound: (code: string) => string;
+  /** Toast after copying a board's code link (`code` = the board code). */
+  boardLinkCopied: (code: string) => string;
+  /** Button of the selected board's panel: copies the link that opens the canvas on that board. */
+  copyBoardLink: string;
 }
 
 // --- environment ----------------------------------------------------------------------------------------------------

@@ -19,6 +19,9 @@ export const DEFAULT_DESIGN_STUDIO_TEXTS: DesignStudioTexts = {
   themeWithoutDarkMode: 'This theme has no dark mode',
   thumbnailMissing: 'No thumbnail yet',
   referenceNotePlaceholder: 'What should change? (optional, goes into the reference)',
+  boardCodeNotFound: code => `No board has the code ${code}`,
+  boardLinkCopied: code => `Link to ${code} copied`,
+  copyBoardLink: 'Copy link',
 };
 
 /** The defaults with the application's replacements on top; an entry that is missing or `undefined` keeps its default. */

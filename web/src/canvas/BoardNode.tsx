@@ -103,8 +103,9 @@ const BoardNodeComponent = ({ id, data }: NodeProps<BoardFlowNode>) => {
     if (!liveHtmlUrl) setLoadedFrameUrl(null);
   }, [liveHtmlUrl]);
   const title = board.title ?? board.boardKey ?? '';
-  // the board's code (file name without extension) under the title, so a screen can be named unambiguously
-  const boardCode = boardCodeOf(board.boardKey ?? '');
+  // the board's code under the title (`APP ONB-W2`; without one, the file name without extension), so a screen can be
+  // named unambiguously and opened by its code
+  const boardCode = board.code ?? boardCodeOf(board.boardKey ?? '');
   const [isDownloadOpen, setIsDownloadOpen] = useState(false);
   const pressPointRef = useRef<{ x: number; y: number } | null>(null);
   // far out (small thumbnails) the header is only the title: no buttons, no badges to mount per board

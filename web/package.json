@@ -1,6 +1,6 @@
 {
   "name": "@mgamadeus/ddd-design-studio",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "React frontend of the design review studio for backends built with mgamadeus/ddd (Composer package mgamadeus/ddd-design-studio): project overview, a canvas of HTML design boards with live sandboxed previews and thumbnails, comment threads with pins, review statuses and plain-text design references for agents.",
   "keywords": [
     "ddd",

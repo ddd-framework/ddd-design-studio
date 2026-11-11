@@ -24,6 +24,9 @@ class DesignProjectDefinitionsService extends Service
     /** @var string Keys are used in URLs, file cache keys and review state */
     public const string KEY_PATTERN = '/^[a-z0-9][a-z0-9-]{0,62}$/';
 
+    /** @var string Project and canvas codes (upper case after reading): letters and digits, starting with a letter */
+    public const string CODE_PATTERN = '/^[A-Z][A-Z0-9]{0,11}$/';
+
     /**
      * @return DesignProjectDefinitions every declared project with its canvases, in config order
      * @throws BadRequestException when the config declares an invalid or duplicate key or an unsafe folder
@@ -32,6 +35,7 @@ class DesignProjectDefinitionsService extends Service
     {
         $projectDefinitions = new DesignProjectDefinitions();
         $seenProjectKeys = [];
+        $seenCodePrefixes = [];
         foreach ($this->getProjectsConfig() as $projectConfig) {
             $projectKey = (string)($projectConfig['key'] ?? '');
             if (!preg_match(static::KEY_PATTERN, $projectKey) || isset($seenProjectKeys[$projectKey])) {
@@ -42,6 +46,7 @@ class DesignProjectDefinitionsService extends Service
             $projectDefinition->projectKey = $projectKey;
             $projectDefinition->label = (string)($projectConfig['label'] ?? $projectKey);
             $projectDefinition->path = (string)($projectConfig['path'] ?? $projectKey);
+            $projectDefinition->code = $this->readCode($projectConfig['code'] ?? null, "project '$projectKey'");
             $projectDefinition->canvasDefinitions = new DesignCanvasDefinitions();
             $seenCanvasKeys = [];
             foreach (($projectConfig['canvases'] ?? []) as $canvasConfig) {
@@ -66,6 +71,18 @@ class DesignProjectDefinitionsService extends Service
                 $canvasDefinition->boardPatterns = array_values(array_map('strval', $canvasConfig['boards'] ?? []));
                 $canvasDefinition->sectionPatterns = array_values(array_map('strval', $canvasConfig['sections'] ?? []));
                 $canvasDefinition->referenceTheme = isset($canvasConfig['referenceTheme']) ? (string)$canvasConfig['referenceTheme'] : null;
+                $canvasDefinition->projectCode = $projectDefinition->code;
+                $canvasDefinition->code = $this->readCode($canvasConfig['code'] ?? null, "canvas '$projectKey/$canvasKey'");
+                $codePrefix = $canvasDefinition->getCodePrefix();
+                if ($codePrefix !== null) {
+                    // a board code names one board of the whole installation: no two canvases share a prefix
+                    if (isset($seenCodePrefixes[$codePrefix])) {
+                        throw new BadRequestException(
+                            "Design studio config: canvas '$projectKey/$canvasKey' has the code '$codePrefix' of canvas '{$seenCodePrefixes[$codePrefix]}'"
+                        );
+                    }
+                    $seenCodePrefixes[$codePrefix] = "$projectKey/$canvasKey";
+                }
                 $projectDefinition->canvasDefinitions->add($canvasDefinition);
             }
             $projectDefinitions->add($projectDefinition);
@@ -102,6 +119,24 @@ class DesignProjectDefinitionsService extends Service
             }
         }
         return null;
+    }
+
+    /**
+     * @param mixed $code the configured code, null / '' = none
+     * @param string $owner what the code belongs to (for the error message)
+     * @return string|null the code in upper case
+     * @throws BadRequestException when the code is not 1–12 letters and digits starting with a letter
+     */
+    protected function readCode(mixed $code, string $owner): ?string
+    {
+        if ($code === null || $code === '') {
+            return null;
+        }
+        $code = strtoupper(trim((string)$code));
+        if (!preg_match(static::CODE_PATTERN, $code)) {
+            throw new BadRequestException("Design studio config: invalid code '$code' of $owner (1–12 letters and digits, starting with a letter)");
+        }
+        return $code;
     }
 
     /**

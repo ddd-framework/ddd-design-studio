@@ -4,12 +4,12 @@
  * Format (one line per board, fields joined by " · ", the deep link always last; optional
  * extra lines below):
  *
- *   [design-ref] App › Onboarding – first run › 2 Welcome · file welcome-2.dc.html · canvas app/onboarding
+ *   [design-ref] App › Onboarding – first run › 2 Welcome · code APP ONB-W2 · file onb-w-2-welcome.dc.html · canvas app/onboarding
  *     · v3f9c2ab · theme brand:1:dark · region 24,180,342,220
- *     · https://…/app/canvases/onboarding?board=welcome-2.dc.html&theme=brand:1&mode=dark
+ *     · https://…/app/canvases/onboarding?board=onb-w-2-welcome.dc.html&theme=brand:1&mode=dark
  *   note: make the tab bar more compact
  *
- * `file` is the board key (the file name in the canvas folder), `v…` the first 7 characters of the board file's
+ * `code` is the board code (left out when the board has none), `file` the board key (the file name in the canvas folder), `v…` the first 7 characters of the board file's
  * content hash (git blob hash), `theme` the theme reference the board was looked at in (`none` = as authored).
  *
  * Pure functions, no React (tested in designReference.test.ts).
@@ -33,6 +33,8 @@ export interface DesignReferenceInput {
   boardTitle: string;
   /** File name of the board in the canvas folder. */
   boardKey: string;
+  /** Board code (`APP ONB-W2`), null / absent = the board has none. */
+  boardCode?: string | null;
   /** Content hash of the board file (git blob hash); the reference carries its first 7 characters. */
   contentHash: string | null;
   /** Theme reference the board is shown in (`<themeId>` or `<themeId>:dark`), null = as authored. */
@@ -52,6 +54,7 @@ const oneLine = (text: string) => text.replace(/\s+/g, ' ').trim();
 export const buildDesignReference = (input: DesignReferenceInput): string => {
   const fields = [
     `${DESIGN_REFERENCE_PREFIX} ${oneLine(input.projectName)} › ${oneLine(input.canvasName)} › ${oneLine(input.boardTitle)}`,
+    ...(input.boardCode ? [`code ${oneLine(input.boardCode)}`] : []),
     `file ${input.boardKey}`,
     `canvas ${input.projectKey}/${input.canvasKey}`,
     `v${input.contentHash ? input.contentHash.slice(0, 7) : '?'}`,

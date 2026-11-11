@@ -20,6 +20,15 @@ export {
   DESIGN_REFERENCE_PREFIX,
   type DesignReferenceInput,
 } from './canvas/designReference';
+export {
+  boardCodeMatches,
+  boardCodeUrlValue,
+  buildBoardCodeLink,
+  CODE_PARAM,
+  codeBelongsToCanvas,
+  findBoardForCode,
+  normalizeBoardCode,
+} from './canvas/boardCode';
 export { buildThemeReference, splitThemeReference, type ThemeLook, type ThemeMode } from './canvas/designTheme';
 export {
   DesignStudioProvider,

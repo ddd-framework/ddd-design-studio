@@ -2,9 +2,15 @@
 
 import { normalizeDddError } from '@mgamadeus/ddd-web/api';
 import { Hourglass, LayoutGrid, Palette } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 
-import { useDesignStudio } from '../provider/DesignStudioProvider';
+import type { DesignStudioProjectSummary } from '../api/types';
+import { boardCodeUrlValue, CODE_PARAM, codeBelongsToCanvas } from '../canvas/boardCode';
+import { useDesignStudio, useDesignStudioTexts } from '../provider/DesignStudioProvider';
+import type { DesignStudioPaths } from '../provider/types';
+
+/** Without the application's `useNavigate` the overview shows a link to the board instead of navigating. */
+const useNoNavigate = (): ((href: string) => void) | null => null;
 
 export interface DesignStudioOverviewScreenProps {
   /** Page title (a two-tone title wraps its accent part in `<em>`). */
@@ -13,7 +19,28 @@ export interface DesignStudioOverviewScreenProps {
   description?: ReactNode;
 }
 
-/** Overview: every design project with its canvases (boards, open threads, decisions per canvas). */
+/**
+ * The canvas page that opens a board code (`APP ONB-W2`, `ONB-W2`): the path of the one canvas whose code the
+ * typed code starts with, with `?code=`; null when no canvas or more than one matches.
+ */
+const codeTarget = (
+  projects: readonly DesignStudioProjectSummary[],
+  typedCode: string,
+  paths: DesignStudioPaths
+): string | null => {
+  const targets = projects.flatMap(project =>
+    (project.canvases?.elements ?? [])
+      .filter(canvas => codeBelongsToCanvas(typedCode, canvas.code))
+      .map(canvas => `${paths.canvas(project.projectKey ?? '', canvas.canvasKey ?? '')}?${CODE_PARAM}=${encodeURIComponent(boardCodeUrlValue(typedCode))}`)
+  );
+  return targets.length === 1 ? targets[0] : null;
+};
+
+/**
+ * Overview: every design project with its canvases (boards, open threads, decisions per canvas), and a field that
+ * opens a board by its code. `?code=<board code>` on this page opens it directly (a short link that needs no canvas
+ * path).
+ */
 export const DesignStudioOverviewScreen = ({
   title = (
     <>
@@ -23,13 +50,51 @@ export const DesignStudioOverviewScreen = ({
   description = 'Design projects and their canvases — review, comment, decide.',
 }: DesignStudioOverviewScreenProps) => {
   const { api, components, paths, router } = useDesignStudio();
-  const { Badge, Card, CardContent, CardHeader, CardTitle, CardGrid, PageHeader, PageSections, Skeleton, StatusCallout } =
-    components;
+  const texts = useDesignStudioTexts();
+  const {
+    Badge,
+    Button,
+    Card,
+    CardContent,
+    CardHeader,
+    CardTitle,
+    CardGrid,
+    PageHeader,
+    PageSections,
+    SearchField,
+    Skeleton,
+    StatusCallout,
+  } = components;
   const { Link } = router;
+  const navigate = (router.useNavigate ?? useNoNavigate)();
   const { data, isLoading, error } = api.useOverviewQuery();
   const overview = data?.designStudioOverview;
-  const projects = overview?.projects?.elements ?? [];
+  const projects = useMemo(() => overview?.projects?.elements ?? [], [overview]);
   const expiringThreadCount = overview?.expiringThreadCount ?? 0;
+  const hasCodes = projects.some(project => (project.canvases?.elements ?? []).some(canvas => canvas.code));
+
+  // Open a board by its code: typed into the field, or `?code=` on this page.
+  const codeParam = router.useSearchParams().get(CODE_PARAM);
+  const [typedCode, setTypedCode] = useState('');
+  const [pendingCode, setPendingCode] = useState<{ code: string; href: string | null } | null>(null);
+  const openCode = (code: string) => {
+    if (!code.trim()) return;
+    const href = codeTarget(projects, code, paths);
+    setPendingCode({ code: code.trim(), href });
+    if (href && navigate) navigate(href);
+  };
+  const openCodeRef = useRef(openCode);
+  openCodeRef.current = openCode;
+  const handledCodeParamRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!codeParam || !overview || handledCodeParamRef.current === codeParam) return;
+    handledCodeParamRef.current = codeParam;
+    openCodeRef.current(codeParam);
+  }, [codeParam, overview]);
+  const submitCode = (event: FormEvent) => {
+    event.preventDefault();
+    openCode(typedCode);
+  };
 
   return (
     <>
@@ -47,6 +112,30 @@ export const DesignStudioOverviewScreen = ({
         />
       )}
       <PageSections>
+        {hasCodes && (
+          <form onSubmit={submitCode} className="flex max-w-md items-center gap-2">
+            <SearchField
+              value={typedCode}
+              onChange={setTypedCode}
+              placeholder="Open a board by its code, e.g. APP ONB-W2"
+              aria-label="Board code"
+              className="flex-1"
+              clearable
+            />
+            <Button type="submit" variant="outline" disabled={!typedCode.trim()}>
+              Open
+            </Button>
+          </form>
+        )}
+        {pendingCode && !pendingCode.href && (
+          <StatusCallout tone="destructive" title={texts.boardCodeNotFound(pendingCode.code)} />
+        )}
+        {pendingCode?.href && !navigate && (
+          <StatusCallout
+            title={`Board ${pendingCode.code}`}
+            description={<Link href={pendingCode.href}>Open it on its canvas</Link>}
+          />
+        )}
         {isLoading && <Skeleton className="h-40 w-full rounded-2xl" />}
         {!isLoading && !error && projects.length === 0 && (
           <StatusCallout
@@ -84,6 +173,9 @@ export const DesignStudioOverviewScreen = ({
                         <span className="flex min-w-0 items-center gap-2 font-medium">
                           <LayoutGrid className="size-4 shrink-0 text-brand-emphasis" aria-hidden />
                           <span className="truncate">{canvas.label ?? canvas.canvasKey}</span>
+                          {canvas.code && (
+                            <span className="shrink-0 text-xs font-semibold text-muted-foreground tabular-nums">{canvas.code}</span>
+                          )}
                         </span>
                         <span className="shrink-0 text-muted-foreground">
                           {canvas.boardCount ?? 0} boards · {canvas.openThreadCount ?? 0} open ·{' '}
