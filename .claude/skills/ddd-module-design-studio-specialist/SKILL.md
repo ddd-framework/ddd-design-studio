@@ -3,7 +3,7 @@ name: ddd-module-design-studio-specialist
 description: "Installs, wires and operates the ddd-design-studio module, a design review studio that shows the HTML design boards of a checkout on a canvas. Covers the directory model (canvas.json plus board files, version = git blob hash), config DesignStudio projects, api, content, statuses, retention, storage, renderer, thin controllers on the three controller traits, the public content route and its token, object storage, the optional thumbnail renderer with Messenger handler and worker, binding DesignAccessPolicyService and DesignThemeProviderService, board codes (APP ONB-W2) and code links, and the console commands app:design-studio:show, comments, comments-poll, decisions, status, theme, thumbnails, prune. Use when installing the studio, adding a project or canvas, giving boards codes or linking to a board, answering design comments as an agent, setting a board status, requesting thumbnails, or debugging an empty canvas, a missing board, No handler for message, missing thumbnails or a 404 on board content."
 metadata:
   author: mgamadeus
-  version: "0.2.1"
+  version: "0.2.2"
   module: mgamadeus/ddd-design-studio
 ---
 
@@ -273,9 +273,14 @@ unreachable; retried with backoff), `DONE`, `FAILED`. A thumbnail key is derived
 
 ## Bind the access policy and themes
 
-Subclass and register under the module's service id:
+Subclass, register the subclasses as public services **and** alias the module's service ids to them:
 
 ```yaml
+# the application's own classes, public (a resource block of the namespace is enough)
+App\Domain\DesignStudio\Services\:
+    resource: '../src/Domain/DesignStudio/Services/'
+    public: true
+
 DDD\Domain\DesignStudio\Services\DesignAccessPolicyService:
     class: App\Domain\DesignStudio\Services\AppDesignAccessPolicyService
     public: true
@@ -284,6 +289,10 @@ DDD\Domain\DesignStudio\Services\DesignThemeProviderService:
     class: App\Domain\DesignStudio\Services\AppDesignThemeProviderService
     public: true
 ```
+
+Without the public registration of the subclasses themselves the console commands fail with `The
+"App\…\AppDesignAccessPolicyService" service or alias has been removed or inlined when the container was compiled`:
+the framework's service lookup also asks for the concrete class. The module itself always resolves the module class id.
 
 ```php
 class AppDesignAccessPolicyService extends DesignAccessPolicyService
@@ -312,6 +321,8 @@ class AppDesignAccessPolicyService extends DesignAccessPolicyService
 
 | Symptom | Cause and fix |
 |---|---|
+| `The "App\…\App…Service" service or alias has been removed or inlined` | The access policy / theme subclass is only aliased; register the subclass itself as a public service (Bind the access policy and themes) |
+| Console shows "Blocked script execution in …/content/boards/…" | Not from the module: the delivered board has no `<script>` (removed, and the CSP says `script-src 'none'`). Browser extensions that inject scripts into every frame trigger it in the sandboxed iframe; harmless |
 | Canvas is empty, warning `No <folder>/canvas.json in this checkout` | The folder is not in the image / checkout of the answering process, the `folder` value is wrong, or it resolves outside the project root (symbolic link). Check the folder on the server, not locally |
 | `show` works locally but the studio page is empty | Different checkouts. The web process reads its own file system; deploy the canvas folder |
 | A board of `canvas.json` is missing, no warning | Its key is not a plain `.html` file name, starts with a dot, or does not match the canvas' `boards` patterns |

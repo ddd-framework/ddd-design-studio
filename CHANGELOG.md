@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.2
+
+- **Peer ranges:** `react` / `react-dom` `^19.0.0`, `lucide-react` `^0.550.0 || ^1.0.0` (every icon the package uses
+  exists there).
+- **Docs:** the access policy / theme subclasses must be public services themselves, not only aliased (else the
+  console commands fail with "removed or inlined"); the "Blocked script execution" console line comes from browser
+  extensions, not from the board; pnpm `minimumReleaseAge` and `minimumReleaseAgeExclude`; the Next.js App Router
+  example now carries a complete merged search-parameter writer, `useUrlState` (URL + sessionStorage) and
+  `useNavigate`.
+
 ## 0.2.1
 
 - **Code links:** a code link opens the side panel before the first fit (opening it later narrowed the canvas and

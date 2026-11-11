@@ -22,14 +22,23 @@ ESM only. Peer dependencies (installed by the application):
 
 | Package | Range |
 |---|---|
-| `react`, `react-dom` | `^19.3.1` |
+| `react`, `react-dom` | `^19.0.0` |
 | `@reduxjs/toolkit` | `^2.13.0` |
 | `react-redux` | `^9.3.1` |
 | `@mgamadeus/ddd-web` | `^0.3.0` |
 | `@xyflow/react` | `^12.12.1` (loaded only by the `/canvas` entry) |
-| `lucide-react` | `^1.66.0` |
+| `lucide-react` | `^0.550.0 \|\| ^1.0.0` |
 
 `clsx` and `tailwind-merge` are regular dependencies.
+
+**pnpm `minimumReleaseAge`:** pnpm 10+ refuses versions younger than the configured age (24 h by default in many
+setups), so `pnpm install --frozen-lockfile` fails in CI right after a release. Either wait, or exclude the package in
+`pnpm-workspace.yaml` and commit that line together with the lockfile:
+
+```yaml
+minimumReleaseAgeExclude:
+  - '@mgamadeus/ddd-design-studio'
+```
 
 ## Entries
 
@@ -189,6 +198,130 @@ export const designStudioApi = createDesignStudioApi({ baseApi, apiPrefix: '/api
 // src/design-studio/AppDesignStudioProvider.tsx: the environment built from the application's own pieces
 'use client';
 
+import {
+  DesignStudioProvider,
+  type DesignStudioEnvironment,
+  type DesignStudioSearchParamUpdates,
+  type DesignStudioUrlStateOptions,
+} from '@mgamadeus/ddd-design-studio';
+import Link from 'next/link';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
+
+import { designStudioApi } from './designStudioApi';
+
+type AppRouter = ReturnType<typeof useRouter>;
+
+// Writes of one tick are merged into one `router.replace` (the canvas writes several parameters at once).
+let pendingUpdates: Record<string, string | null> | null = null;
+const queueSearchParamsWrite = (pathname: string, router: AppRouter, updates: DesignStudioSearchParamUpdates) => {
+  if (!pendingUpdates) {
+    pendingUpdates = {};
+    queueMicrotask(() => {
+      const next = new URLSearchParams(window.location.search);
+      for (const [key, value] of Object.entries(pendingUpdates ?? {})) {
+        if (value) next.set(key, value);
+        else next.delete(key);
+      }
+      pendingUpdates = null;
+      const query = next.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    });
+  }
+  Object.assign(pendingUpdates, updates);
+};
+
+/** Replaces search parameters of the current page (no history entry); `null` / `''` removes one. */
+const useSearchParamsWriter = () => {
+  const pathname = usePathname();
+  const router = useRouter();
+  return useCallback(
+    (updates: DesignStudioSearchParamUpdates) => queueSearchParamsWrite(pathname, router, updates),
+    [pathname, router]
+  );
+};
+
+/**
+ * The canvas state in the URL: read from the URL on mount, else restored from this tab's sessionStorage under
+ * `stateId`; written back (URL + storage) `debounceMs` after the last change. Defaults (`''`) are never written.
+ */
+const useUrlState = <K extends string>(keys: readonly K[], { stateId, debounceMs }: DesignStudioUrlStateOptions) => {
+  const searchParams = useSearchParams();
+  const writeSearchParams = useSearchParamsWriter();
+  const storageKey = `app.${stateId}`;
+  const [values, setValues] = useState(() => {
+    const fromUrl = Object.fromEntries(keys.map(key => [key, searchParams.get(key) ?? ''])) as Record<K, string>;
+    if (keys.some(key => fromUrl[key]) || typeof window === 'undefined') return fromUrl;
+    try {
+      return { ...fromUrl, ...(JSON.parse(window.sessionStorage.getItem(storageKey) ?? '{}') as Partial<Record<K, string>>) };
+    } catch {
+      return fromUrl;
+    }
+  });
+  const [debounced, setDebounced] = useState(values);
+  const keysRef = useRef(keys);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebounced(values);
+      writeSearchParams(Object.fromEntries(keysRef.current.map(key => [key, values[key] || null])));
+      try {
+        window.sessionStorage.setItem(storageKey, JSON.stringify(values));
+      } catch {
+        // storage blocked: the URL still holds the state
+      }
+    }, debounceMs);
+    return () => clearTimeout(timer);
+  }, [values, debounceMs, storageKey, writeSearchParams]);
+  const setValue = useCallback((key: K, value: string) => setValues(current => ({ ...current, [key]: value })), []);
+  return { values, debounced, setValue };
+};
+
+/** Client navigation (the overview opens a board code on its canvas). */
+const useNavigate = () => {
+  const router = useRouter();
+  return useCallback((href: string) => router.push(href), [router]);
+};
+
+const ENVIRONMENT: DesignStudioEnvironment = {
+  // …
+  texts: { reload: 'Refresh (R)', boardsUpdated: count => `${count} screens changed` },
+};
+```
+
+The other texts of the studio are fixed English strings.
+
+## Routes the application creates
+
+The package has no router. The application creates one page per screen and tells the studio their paths through
+`environment.paths`:
+
+| Page | Screen | `paths` entry |
+|---|---|---|
+| overview of the projects | `DesignStudioOverviewScreen` | `overview()` |
+| one project and its canvases | `DesignStudioProjectScreen` (`projectKey`) | `project(projectKey)` |
+| one canvas | `DesignStudioCanvasScreen` (`projectKey`, `canvasKey`) from `/canvas` | `canvas(projectKey, canvasKey)` |
+| reviews (optional; an empty state in this version) | `DesignStudioReviewsScreen` | none: linked by the application's own navigation |
+
+The canvas page keeps its state in search parameters: `board` (the focus view), `q`, `section`, `status`, `theme`,
+`mode`, `vp`. `code` opens a board by its code (see Board codes) and is removed from the URL once handled. Project and canvas keys in a URL should be validated by the application before a screen is rendered.
+
+## Wiring with the Next.js App Router
+
+A minimal example. `@/…` stands for the application's own modules.
+
+```ts
+// src/design-studio/designStudioApi.ts: once, at module scope
+import { createDesignStudioApi } from '@mgamadeus/ddd-design-studio';
+
+import { baseApi } from '@/api/baseApi';
+
+export const designStudioApi = createDesignStudioApi({ baseApi, apiPrefix: '/api/admin/designStudio' });
+```
+
+```tsx
+// src/design-studio/AppDesignStudioProvider.tsx: the environment built from the application's own pieces
+'use client';
+
 import { DesignStudioProvider, type DesignStudioEnvironment } from '@mgamadeus/ddd-design-studio';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
@@ -220,8 +353,7 @@ const useSearchParamsWriter = () => {
 const ENVIRONMENT: DesignStudioEnvironment = {
   api: designStudioApi,
   apiBaseUrl: '',
-  // useUrlState: the application's hook for list state in the URL (see the contract of `router.useUrlState`)
-  router: { Link, useSearchParams, useSearchParamsWriter, useUrlState: useAppUrlState },
+  router: { Link, useSearchParams, useSearchParamsWriter, useUrlState, useNavigate },
   paths: {
     overview: () => '/design',
     project: projectKey => `/design/${projectKey}`,
