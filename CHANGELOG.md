@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.3
+
+- **Peer range:** `lucide-react` `>=0.550.0 <2` (the caret range of 0.2.2 held 0.x at its minor and excluded 0.552).
+
 ## 0.2.2
 
 - **Peer ranges:** `react` / `react-dom` `^19.0.0`, `lucide-react` `^0.550.0 || ^1.0.0` (every icon the package uses

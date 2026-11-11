@@ -27,7 +27,7 @@ ESM only. Peer dependencies (installed by the application):
 | `react-redux` | `^9.3.1` |
 | `@mgamadeus/ddd-web` | `^0.3.0` |
 | `@xyflow/react` | `^12.12.1` (loaded only by the `/canvas` entry) |
-| `lucide-react` | `^0.550.0 \|\| ^1.0.0` |
+| `lucide-react` | `>=0.550.0 <2` |
 
 `clsx` and `tailwind-merge` are regular dependencies.
 
