@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1
+
+- **Code links:** a code link opens the side panel before the first fit (opening it later narrowed the canvas and
+  re-packed the layout, so the board was out of view); a code link while the panel is closed fits after the re-layout.
+
 ## 0.2.0
 
 - **Board codes:** a project and a canvas may set `code` in `DesignStudio.projects`; the boards of such a canvas get a

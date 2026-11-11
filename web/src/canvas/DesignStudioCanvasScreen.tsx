@@ -272,7 +272,10 @@ export const DesignStudioCanvasScreen = ({ projectKey, canvasKey }: DesignStudio
   const [fitRequest, setFitRequest] = useState<CanvasFitRequest | null>(null);
   // pan by default; the area-select tool is opt-in and kept only for this page visit
   const [tool, setTool] = useState<CanvasTool>('hand');
-  const [isCommentsPanelOpen, setIsCommentsPanelOpen] = useState(() => storage.read('commentsPanelOpen') !== '0');
+  // a code link shows the board's panel: open from the start, so opening it does not re-pack the layout after the fit
+  const [isCommentsPanelOpen, setIsCommentsPanelOpen] = useState(
+    () => Boolean(searchParams.get(CODE_PARAM)) || storage.read('commentsPanelOpen') !== '0'
+  );
   // Search, filters, theme and theme mode: in the URL (source of truth), saved per canvas in this tab's
   // sessionStorage and restored when the URL has none of them (the application's URL state, `router.useUrlState`).
   // Defaults (no search / filter, the canvas' reference theme and its mode) are never written.
@@ -699,9 +702,22 @@ export const DesignStudioCanvasScreen = ({ projectKey, canvasKey }: DesignStudio
     const nodeId = boardNodeId(board.boardKey);
     setSelectedBoardId(nodeId);
     setSelectedBoardIds(new Set([nodeId]));
-    setIsCommentsPanelOpen(true);
-    if (!isFirstView) requestFit([nodeId]);
-  }, [codeParam, codeAtLoad, boards, writeSearchParams, notify, texts, requestFit]);
+    if (isFirstView) return;
+    if (isCommentsPanelOpen) {
+      requestFit([nodeId]);
+    } else {
+      // opening the panel narrows the canvas and re-packs the layout: fit once the new layout is there
+      pendingCodeFitRef.current = nodeId;
+      setIsCommentsPanelOpen(true);
+    }
+  }, [codeParam, codeAtLoad, boards, isCommentsPanelOpen, writeSearchParams, notify, texts, requestFit]);
+  const pendingCodeFitRef = useRef<string | null>(null);
+  useEffect(() => {
+    const nodeId = pendingCodeFitRef.current;
+    if (!nodeId || layout.sections.length === 0) return;
+    pendingCodeFitRef.current = null;
+    requestFit([nodeId]);
+  }, [layout, requestFit]);
 
   const stepFocus = useCallback(
     (step: number) => {
