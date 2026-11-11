@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.4
+
+- **Peer ranges:** `@reduxjs/toolkit` `^2.6.0` (the oldest release with every RTK Query type the package uses),
+  `react-redux` `^9.0.0` (not imported by the package; the application's store provider).
+
 ## 0.2.3
 
 - **Peer range:** `lucide-react` `>=0.550.0 <2` (the caret range of 0.2.2 held 0.x at its minor and excluded 0.552).

@@ -3,7 +3,7 @@ name: ddd-module-design-studio-specialist
 description: "Installs, wires and operates the ddd-design-studio module, a design review studio that shows the HTML design boards of a checkout on a canvas. Covers the directory model (canvas.json plus board files, version = git blob hash), config DesignStudio projects, api, content, statuses, retention, storage, renderer, thin controllers on the three controller traits, the public content route and its token, object storage, the optional thumbnail renderer with Messenger handler and worker, binding DesignAccessPolicyService and DesignThemeProviderService, board codes (APP ONB-W2) and code links, and the console commands app:design-studio:show, comments, comments-poll, decisions, status, theme, thumbnails, prune. Use when installing the studio, adding a project or canvas, giving boards codes or linking to a board, answering design comments as an agent, setting a board status, requesting thumbnails, or debugging an empty canvas, a missing board, No handler for message, missing thumbnails or a 404 on board content."
 metadata:
   author: mgamadeus
-  version: "0.2.3"
+  version: "0.2.4"
   module: mgamadeus/ddd-design-studio
 ---
 

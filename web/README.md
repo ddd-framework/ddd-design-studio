@@ -23,8 +23,8 @@ ESM only. Peer dependencies (installed by the application):
 | Package | Range |
 |---|---|
 | `react`, `react-dom` | `^19.0.0` |
-| `@reduxjs/toolkit` | `^2.13.0` |
-| `react-redux` | `^9.3.1` |
+| `@reduxjs/toolkit` | `^2.6.0` |
+| `react-redux` | `^9.0.0` |
 | `@mgamadeus/ddd-web` | `^0.3.0` |
 | `@xyflow/react` | `^12.12.1` (loaded only by the `/canvas` entry) |
 | `lucide-react` | `>=0.550.0 <2` |
