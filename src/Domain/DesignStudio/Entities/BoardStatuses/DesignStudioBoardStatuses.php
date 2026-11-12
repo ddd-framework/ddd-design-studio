@@ -8,7 +8,6 @@ use DDD\Domain\DesignStudio\Repo\DB\BoardStatuses\DBDesignStudioBoardStatuses;
 use DDD\Domain\DesignStudio\Services\DesignStudioBoardStatusesService;
 use DDD\Domain\Base\Entities\EntitySet;
 use DDD\Domain\Base\Entities\LazyLoad\LazyLoadRepo;
-use DDD\Domain\Base\Entities\QueryOptions\QueryOptionsTrait;
 
 /**
  * @property DesignStudioBoardStatus[] $elements
@@ -20,7 +19,5 @@ use DDD\Domain\Base\Entities\QueryOptions\QueryOptionsTrait;
 #[LazyLoadRepo(LazyLoadRepo::DB, DBDesignStudioBoardStatuses::class)]
 class DesignStudioBoardStatuses extends EntitySet
 {
-    use QueryOptionsTrait;
-
     public const string SERVICE_NAME = DesignStudioBoardStatusesService::class;
 }

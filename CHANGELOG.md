@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1
+
+- **Fix: canvases with more than 50 boards.** The entity sets of statuses, comments, thumbnails and thumbnail render
+  requests carried `QueryOptionsTrait`, so every read of them stopped at the default `top` of 50 rows: beyond the 50th
+  row a board showed the default status, comments of the canvas were missing (canvas view, console, poll, decisions,
+  retention) and thumbnails counted as missing. No route of the studio offers query options; the sets no longer carry
+  the trait and are read whole.
+
 ## 0.3.0
 
 - **Board images from `assets/`:** a board may reference image files of `<canvas folder>/assets/` (`assets/<path>` or

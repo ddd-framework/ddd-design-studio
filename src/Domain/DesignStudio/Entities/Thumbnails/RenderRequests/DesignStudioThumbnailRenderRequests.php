@@ -8,7 +8,6 @@ use DDD\Domain\DesignStudio\Repo\DB\Thumbnails\RenderRequests\DBDesignStudioThum
 use DDD\Domain\DesignStudio\Services\DesignStudioThumbnailRenderRequestsService;
 use DDD\Domain\Base\Entities\EntitySet;
 use DDD\Domain\Base\Entities\LazyLoad\LazyLoadRepo;
-use DDD\Domain\Base\Entities\QueryOptions\QueryOptionsTrait;
 
 /**
  * @property DesignStudioThumbnailRenderRequest[] $elements
@@ -20,7 +19,5 @@ use DDD\Domain\Base\Entities\QueryOptions\QueryOptionsTrait;
 #[LazyLoadRepo(LazyLoadRepo::DB, DBDesignStudioThumbnailRenderRequests::class)]
 class DesignStudioThumbnailRenderRequests extends EntitySet
 {
-    use QueryOptionsTrait;
-
     public const string SERVICE_NAME = DesignStudioThumbnailRenderRequestsService::class;
 }
