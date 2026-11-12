@@ -340,6 +340,18 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
         if ($boardContent === null || DesignDirectoryReaderService::computeContentHash($boardContent) !== $designDirectoryBoard->contentHash) {
             return null;
         }
+        /** @var DesignBoardAssetsService $designBoardAssetsService */
+        $designBoardAssetsService = DDDService::instance()->getService(DesignBoardAssetsService::class);
+        $assetPaths = DesignBoardAssetsService::findReferencedAssetPaths($boardContent);
+        if ($assetPaths !== []) {
+            // the same for the asset files: the key names their version too
+            $assetsHash = $designBoardAssetsService->findCurrentAssetReferences($canvasDefinition, $assetPaths)->computeAssetsHash();
+            if ($assetsHash !== $designDirectoryBoard->assetsHash) {
+                return null;
+            }
+            // the renderer loads nothing from the network: the asset files travel inside the board
+            $boardContent = $designBoardAssetsService->inlineAssetReferences($boardContent, $canvasDefinition);
+        }
         $renderer = new ArgusDesignBoardRenderedThumbnails();
         $renderer->html = $boardContent;
         $renderer->width = max(1, (int)$designDirectoryBoard->width);

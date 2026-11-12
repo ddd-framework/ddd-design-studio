@@ -58,11 +58,13 @@ class DesignStudioThumbnailsService extends EntitiesService
     /**
      * @param string $contentHash content hash of the board file
      * @param string $themeHash DesignThemeProviderService::computeThemeHash()
+     * @param string|null $assetsHash version of the asset files the board shows (DesignDirectoryBoard::$assetsHash)
      * @return string the key of the board version's thumbnail in that look
      */
-    public function computeThumbnailKey(string $contentHash, string $themeHash): string
+    public function computeThumbnailKey(string $contentHash, string $themeHash, ?string $assetsHash = null): string
     {
-        return hash('sha256', $contentHash . ':' . $themeHash . ':' . $this->getRendererVersion());
+        // a board without assets keeps the key it had before assets existed
+        return hash('sha256', $contentHash . ':' . $themeHash . ':' . $this->getRendererVersion() . ($assetsHash !== null ? ':' . $assetsHash : ''));
     }
 
     /**
@@ -97,7 +99,7 @@ class DesignStudioThumbnailsService extends EntitiesService
         $thumbnailKeys = [];
         foreach ($designDirectoryBoards->getElements() as $designDirectoryBoard) {
             if ($designDirectoryBoard->contentHash !== null) {
-                $thumbnailKeys[] = $this->computeThumbnailKey($designDirectoryBoard->contentHash, $themeHash);
+                $thumbnailKeys[] = $this->computeThumbnailKey($designDirectoryBoard->contentHash, $themeHash, $designDirectoryBoard->assetsHash);
             }
         }
         if (!$thumbnailKeys) {
@@ -138,7 +140,7 @@ class DesignStudioThumbnailsService extends EntitiesService
         foreach ($designDirectoryBoards->getElements() as $designDirectoryBoard) {
             if (
                 $designDirectoryBoard->contentHash === null
-                || isset($existingThumbnailKeys[$this->computeThumbnailKey($designDirectoryBoard->contentHash, $themeHash)])
+                || isset($existingThumbnailKeys[$this->computeThumbnailKey($designDirectoryBoard->contentHash, $themeHash, $designDirectoryBoard->assetsHash)])
             ) {
                 continue;
             }
@@ -172,7 +174,7 @@ class DesignStudioThumbnailsService extends EntitiesService
      */
     public function storeThumbnail(DesignDirectoryBoard $designDirectoryBoard, string $themeHash, string $png): ?DesignStudioThumbnail
     {
-        $thumbnailKey = $this->computeThumbnailKey((string)$designDirectoryBoard->contentHash, $themeHash);
+        $thumbnailKey = $this->computeThumbnailKey((string)$designDirectoryBoard->contentHash, $themeHash, $designDirectoryBoard->assetsHash);
         $existingDesignStudioThumbnail = $this->findByThumbnailKey($thumbnailKey);
         if ($existingDesignStudioThumbnail) {
             return $existingDesignStudioThumbnail;

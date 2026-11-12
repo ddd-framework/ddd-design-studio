@@ -55,6 +55,12 @@ class DesignDirectoryReaderService extends Service
     /** @var int Lifetime of the per-folder hash cache; an entry is re-validated against mtime + size on every read */
     public const int FILE_HASHES_CACHE_TTL = 30 * 86400;
 
+    /** @var string Folder of a canvas that holds the files boards reference (images), next to canvas.json */
+    public const string ASSETS_FOLDER_NAME = 'assets';
+
+    /** @var int Fallback of the config `DesignStudio.content.assetMaximumBytes` */
+    public const int DEFAULT_ASSET_MAXIMUM_BYTES = 5 * 1024 * 1024;
+
     /**
      * @param DesignCanvasDefinition $canvasDefinition
      * @return DesignDirectoryCanvas sections and boards of the canvas as they are in the checkout right now
@@ -187,6 +193,115 @@ class DesignDirectoryReaderService extends Service
     }
 
     /**
+     * The version of a board file in this checkout, from the hashes the last canvas read stored when the file is
+     * unchanged since (else computed from the file).
+     * @param DesignCanvasDefinition $canvasDefinition
+     * @param string $boardKey
+     * @return string|null null when the board is not in this checkout
+     */
+    public function getCheckoutContentHash(DesignCanvasDefinition $canvasDefinition, string $boardKey): ?string
+    {
+        $folderPath = $this->getCanvasFolderPath($canvasDefinition);
+        if ($folderPath === null || !$this->isBoardKeyOfCanvas($boardKey, $canvasDefinition)) {
+            return null;
+        }
+        $boardPath = $folderPath . '/' . $boardKey;
+        if (!is_file($boardPath)) {
+            return null;
+        }
+        $cachedFileHash = $this->loadFileHashes($folderPath)[$boardKey] ?? null;
+        if (is_array($cachedFileHash) && $cachedFileHash[0] === (int)filemtime($boardPath) && $cachedFileHash[1] === (int)filesize($boardPath)) {
+            return $cachedFileHash[2];
+        }
+        $boardContent = $this->readBoardContent($canvasDefinition, $boardKey);
+        return $boardContent === null ? null : static::computeContentHash($boardContent);
+    }
+
+    /**
+     * The file of an asset path in the canvas' `assets/` folder of this checkout.
+     * @param DesignCanvasDefinition $canvasDefinition
+     * @param string $assetPath path below `assets/` (DesignBoardAssetsService::isValidAssetPath())
+     * @return string|null absolute path; null when the path is not a valid asset path, the file is missing, larger
+     *                     than `DesignStudio.content.assetMaximumBytes`, or resolves outside the `assets/` folder
+     *                     (a symbolic link pointing elsewhere)
+     */
+    public function getAssetFilePath(DesignCanvasDefinition $canvasDefinition, string $assetPath): ?string
+    {
+        if (!DesignBoardAssetsService::isValidAssetPath($assetPath)) {
+            return null;
+        }
+        $folderPath = $this->getCanvasFolderPath($canvasDefinition);
+        $assetsFolderPath = $folderPath === null ? false : realpath($folderPath . '/' . static::ASSETS_FOLDER_NAME);
+        if ($assetsFolderPath === false || !is_dir($assetsFolderPath)) {
+            return null;
+        }
+        $assetFilePath = realpath($assetsFolderPath . '/' . $assetPath);
+        if (
+            $assetFilePath === false
+            || !str_starts_with($assetFilePath, $assetsFolderPath . '/')
+            || !is_file($assetFilePath)
+            || filesize($assetFilePath) > $this->getAssetMaximumBytes()
+        ) {
+            return null;
+        }
+        return $assetFilePath;
+    }
+
+    /**
+     * The version of an asset file (its git blob hash), cached per path, modification time and size.
+     * @param string $assetFilePath a path returned by getAssetFilePath()
+     * @return string|null null when the file cannot be read
+     */
+    public function getAssetContentHash(string $assetFilePath): ?string
+    {
+        $modificationTime = @filemtime($assetFilePath);
+        $byteSize = @filesize($assetFilePath);
+        if ($modificationTime === false || $byteSize === false) {
+            return null;
+        }
+        $fileStateKey = sha1($assetFilePath . ':' . $modificationTime . ':' . $byteSize);
+        $cachedContentHash = $this->loadAssetContentHash($fileStateKey);
+        if ($cachedContentHash !== null) {
+            return $cachedContentHash;
+        }
+        $content = @file_get_contents($assetFilePath);
+        if (!is_string($content)) {
+            return null;
+        }
+        $contentHash = static::computeContentHash($content);
+        $this->storeAssetContentHash($fileStateKey, $contentHash);
+        return $contentHash;
+    }
+
+    /**
+     * @param string $fileStateKey hash of path, modification time and size of an asset file
+     * @return string|null the content hash stored for that state of the file
+     */
+    protected function loadAssetContentHash(string $fileStateKey): ?string
+    {
+        $contentHash = Cache::instance()->get('designStudio.assetHash.' . $fileStateKey);
+        return is_string($contentHash) ? $contentHash : null;
+    }
+
+    /**
+     * @param string $fileStateKey
+     * @param string $contentHash
+     * @return void
+     */
+    protected function storeAssetContentHash(string $fileStateKey, string $contentHash): void
+    {
+        Cache::instance()->set('designStudio.assetHash.' . $fileStateKey, $contentHash, static::FILE_HASHES_CACHE_TTL);
+    }
+
+    /**
+     * @return int largest asset file delivered, in bytes
+     */
+    public function getAssetMaximumBytes(): int
+    {
+        return (int)(Config::get('DesignStudio.content.assetMaximumBytes') ?? static::DEFAULT_ASSET_MAXIMUM_BYTES);
+    }
+
+    /**
      * @param array $canvasDescription the decoded canvas.json
      * @param string $folderPath
      * @param DesignCanvasDefinition $canvasDefinition
@@ -201,6 +316,8 @@ class DesignDirectoryReaderService extends Service
         DesignDirectoryCanvas $designDirectoryCanvas
     ): DesignDirectoryBoards {
         $boardMaximumBytes = $this->getBoardMaximumBytes();
+        /** @var DesignBoardAssetsService $designBoardAssetsService */
+        $designBoardAssetsService = DDDService::instance()->getService(DesignBoardAssetsService::class);
         $cachedFileHashes = $this->loadFileHashes($folderPath);
         $fileHashes = [];
         $boards = [];
@@ -220,12 +337,18 @@ class DesignDirectoryReaderService extends Service
             }
             $modificationTime = (int)filemtime($boardPath);
             $cachedFileHash = $cachedFileHashes[$boardKey] ?? null;
-            if (is_array($cachedFileHash) && $cachedFileHash[0] === $modificationTime && $cachedFileHash[1] === $byteSize) {
+            if (
+                is_array($cachedFileHash) && $cachedFileHash[0] === $modificationTime && $cachedFileHash[1] === $byteSize
+                && is_array($cachedFileHash[3] ?? null)
+            ) {
                 $contentHash = $cachedFileHash[2];
+                $assetPaths = $cachedFileHash[3];
             } else {
-                $contentHash = static::computeContentHash((string)file_get_contents($boardPath));
+                $boardContent = (string)file_get_contents($boardPath);
+                $contentHash = static::computeContentHash($boardContent);
+                $assetPaths = DesignBoardAssetsService::findReferencedAssetPaths($boardContent);
             }
-            $fileHashes[$boardKey] = [$modificationTime, $byteSize, $contentHash];
+            $fileHashes[$boardKey] = [$modificationTime, $byteSize, $contentHash, $assetPaths];
             $designDirectoryBoard = new DesignDirectoryBoard();
             $designDirectoryBoard->boardKey = $boardKey;
             $designDirectoryBoard->title = (string)($boardDescription['title'] ?? $boardKey);
@@ -235,6 +358,11 @@ class DesignDirectoryReaderService extends Service
             $designDirectoryBoard->height = (int)($boardDescription['h'] ?? static::DEFAULT_BOARD_HEIGHT);
             $designDirectoryBoard->contentHash = $contentHash;
             $designDirectoryBoard->byteSize = $byteSize;
+            if ($assetPaths) {
+                $designDirectoryBoard->assetsHash = $designBoardAssetsService
+                    ->findCurrentAssetReferences($canvasDefinition, $assetPaths)
+                    ->computeAssetsHash();
+            }
             $boards[] = $designDirectoryBoard;
         }
         if ($fileHashes !== $cachedFileHashes) {
@@ -328,7 +456,8 @@ class DesignDirectoryReaderService extends Service
 
     /**
      * @param string $folderPath
-     * @return array board key => [modification time, size, content hash] as stored by the last read of the folder
+     * @return array board key => [modification time, size, content hash, referenced asset paths] as stored by the last
+     *               read of the folder
      */
     protected function loadFileHashes(string $folderPath): array
     {
@@ -338,7 +467,7 @@ class DesignDirectoryReaderService extends Service
 
     /**
      * @param string $folderPath
-     * @param array $fileHashes board key => [modification time, size, content hash]
+     * @param array $fileHashes board key => [modification time, size, content hash, referenced asset paths]
      * @return void
      */
     protected function storeFileHashes(string $folderPath, array $fileHashes): void

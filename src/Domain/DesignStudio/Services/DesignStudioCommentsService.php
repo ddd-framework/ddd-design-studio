@@ -173,6 +173,11 @@ class DesignStudioCommentsService extends EntitiesService
             /** @var DesignStudioFilesService $designStudioFilesService */
             $designStudioFilesService = DDDService::instance()->getService(DesignStudioFilesService::class);
             $designStudioComment->snapshotObjectKey = $designStudioFilesService->storeSnapshot((string)$designDirectoryBoard->contentHash, $boardContent);
+            if ($designStudioComment->snapshotObjectKey !== null) {
+                /** @var DesignBoardAssetsService $designBoardAssetsService */
+                $designBoardAssetsService = DDDService::instance()->getService(DesignBoardAssetsService::class);
+                $designBoardAssetsService->storeAssetSnapshotsForBoardVersion($canvasDefinition, (string)$designDirectoryBoard->contentHash, $boardContent);
+            }
         }
         return $this->update($designStudioComment);
     }
@@ -478,6 +483,8 @@ class DesignStudioCommentsService extends EntitiesService
             /** @var DesignStudioFilesService $designStudioFilesService */
             $designStudioFilesService = DDDService::instance()->getService(DesignStudioFilesService::class);
             $designStudioFilesService->deleteSnapshot($snapshotObjectKey);
+            // the asset files stay: they are content-addressed and may be shown by other versions
+            $designStudioFilesService->deleteAssetManifest((string)$designStudioComment->contentHash);
         }
     }
 

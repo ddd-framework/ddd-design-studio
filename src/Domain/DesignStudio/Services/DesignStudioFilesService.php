@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace DDD\Domain\DesignStudio\Services;
 
+use DDD\Domain\DesignStudio\Entities\Assets\DesignBoardAssetReference;
+use DDD\Domain\DesignStudio\Entities\Assets\DesignBoardAssetReferences;
 use DDD\Infrastructure\Exceptions\InternalErrorException;
 use DDD\Infrastructure\Libs\Config;
 use DDD\Infrastructure\ObjectStorage\ObjectStorage;
@@ -16,7 +18,8 @@ use ImagickException;
 /**
  * Files the design studio keeps itself, in a named store of the framework's object storage (config
  * `DesignStudio.storage`): snapshots of board versions a comment was written on
- * (content-addressed by the board's content hash: written once, shared by every thread on that version) and rendered
+ * (content-addressed by the board's content hash: written once, shared by every thread on that version), the asset
+ * files such a version references (content-addressed by their own hash, with a manifest per board version) and rendered
  * thumbnails. Without a configured store nothing is kept and reads answer null.
  */
 class DesignStudioFilesService extends Service
@@ -72,6 +75,103 @@ class DesignStudioFilesService extends Service
     {
         if ($this->isSnapshotObjectKey($objectKey)) {
             $this->getObjectStorage()?->deleteObject($objectKey);
+        }
+    }
+
+    /**
+     * Keeps an asset file a commented board version references, content-addressed (written once, shared by every
+     * board and version that shows it).
+     * @param string $contentHash git blob hash of the file
+     * @param string $content
+     * @param string $mediaType
+     * @return string|null the object key, null when no store is configured
+     * @throws InternalErrorException when the store fails
+     */
+    public function storeAssetSnapshot(string $contentHash, string $content, string $mediaType): ?string
+    {
+        $objectStorage = $this->getObjectStorage();
+        if ($objectStorage === null || !preg_match('/^[0-9a-f]{40}$/', $contentHash)) {
+            return null;
+        }
+        $objectKey = $this->getAssetSnapshotObjectKey($contentHash);
+        if (!$objectStorage->objectExists($objectKey)) {
+            $objectStorage->putObject($objectKey, $content, $mediaType);
+        }
+        return $objectKey;
+    }
+
+    /**
+     * @param string $contentHash git blob hash of the file
+     * @return string|null the file, null when it was not kept or no store is configured
+     * @throws InternalErrorException when the store fails
+     */
+    public function readAssetSnapshot(string $contentHash): ?string
+    {
+        if (!preg_match('/^[0-9a-f]{40}$/', $contentHash)) {
+            return null;
+        }
+        return $this->getObjectStorage()?->getObjectContent($this->getAssetSnapshotObjectKey($contentHash));
+    }
+
+    /**
+     * Keeps which asset files a board version showed (next to the board snapshot).
+     * @param string $contentHash content hash of the board version
+     * @param DesignBoardAssetReferences $designBoardAssetReferences
+     * @return string|null the object key, null when no store is configured
+     * @throws InternalErrorException when the store fails
+     */
+    public function storeAssetManifest(string $contentHash, DesignBoardAssetReferences $designBoardAssetReferences): ?string
+    {
+        $objectStorage = $this->getObjectStorage();
+        if ($objectStorage === null || !preg_match('/^[0-9a-f]{40}$/', $contentHash)) {
+            return null;
+        }
+        $contentHashesByAssetPath = [];
+        foreach ($designBoardAssetReferences->getElements() as $designBoardAssetReference) {
+            $contentHashesByAssetPath[(string)$designBoardAssetReference->assetPath] = $designBoardAssetReference->contentHash;
+        }
+        $objectKey = $this->getAssetManifestObjectKey($contentHash);
+        $objectStorage->putObject($objectKey, (string)json_encode($contentHashesByAssetPath, JSON_UNESCAPED_SLASHES), 'application/json');
+        return $objectKey;
+    }
+
+    /**
+     * @param string $contentHash content hash of the board version
+     * @return DesignBoardAssetReferences|null the asset files kept for that version, null when none were kept
+     * @throws InternalErrorException when the store fails
+     */
+    public function readAssetManifest(string $contentHash): ?DesignBoardAssetReferences
+    {
+        if (!preg_match('/^[0-9a-f]{40}$/', $contentHash)) {
+            return null;
+        }
+        $manifestContent = $this->getObjectStorage()?->getObjectContent($this->getAssetManifestObjectKey($contentHash));
+        $contentHashesByAssetPath = $manifestContent === null ? null : json_decode($manifestContent, true);
+        if (!is_array($contentHashesByAssetPath)) {
+            return null;
+        }
+        $designBoardAssetReferences = new DesignBoardAssetReferences();
+        foreach ($contentHashesByAssetPath as $assetPath => $assetContentHash) {
+            if (!is_string($assetPath) || !is_string($assetContentHash) || !preg_match('/^[0-9a-f]{40}$/', $assetContentHash)) {
+                continue;
+            }
+            $designBoardAssetReference = new DesignBoardAssetReference();
+            $designBoardAssetReference->assetPath = $assetPath;
+            $designBoardAssetReference->contentHash = $assetContentHash;
+            $designBoardAssetReferences->add($designBoardAssetReference);
+        }
+        return $designBoardAssetReferences;
+    }
+
+    /**
+     * @param string $contentHash content hash of the board version
+     * @return void
+     * @throws InternalErrorException when the store fails
+     */
+    public function deleteAssetManifest(string $contentHash): void
+    {
+        if (preg_match('/^[0-9a-f]{40}$/', $contentHash)) {
+            $this->getObjectStorage()?->deleteObject($this->getAssetManifestObjectKey($contentHash));
         }
     }
 
@@ -139,6 +239,24 @@ class DesignStudioFilesService extends Service
     public function getSnapshotObjectKey(string $contentHash): string
     {
         return $this->getKeyPrefix() . '/snapshots/' . $contentHash . '.html';
+    }
+
+    /**
+     * @param string $contentHash git blob hash of an asset file
+     * @return string
+     */
+    public function getAssetSnapshotObjectKey(string $contentHash): string
+    {
+        return $this->getKeyPrefix() . '/snapshots/assets/' . $contentHash;
+    }
+
+    /**
+     * @param string $contentHash content hash of a board version
+     * @return string
+     */
+    public function getAssetManifestObjectKey(string $contentHash): string
+    {
+        return $this->getKeyPrefix() . '/snapshots/' . $contentHash . '.assets.json';
     }
 
     /**

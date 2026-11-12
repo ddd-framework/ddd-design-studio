@@ -328,6 +328,7 @@ An invalid or duplicate key or an unsafe folder makes every read of the configur
 |---|---|---|
 | `boardMaximumBytes` | largest board file read; a larger file is left out with a warning | `16 * 1024 * 1024` |
 | `canvasJsonMaximumBytes` | largest `canvas.json` read; a larger file is refused | `4 * 1024 * 1024` |
+| `assetMaximumBytes` | largest asset file (image under `<canvas folder>/assets/`) delivered; a larger file is not delivered | `5 * 1024 * 1024` |
 
 ### `statuses.php` — `DesignStudio.statuses`
 
@@ -402,6 +403,36 @@ How `DesignDirectoryReaderService` reads it:
 - Content hashes are cached per folder and validated against modification time and size of each file, so an unchanged
   canvas is read without opening its board files.
 
+### Images: the `assets/` folder
+
+A board can load images from `<canvas folder>/assets/` instead of embedding them as data URIs, so a photo used by many
+boards is one file in the repository:
+
+```html
+<img src="assets/photos/start-hero-m.webp" alt="">
+<img srcset="assets/photos/hero.webp 1x, assets/photos/hero@2x.webp 2x">
+<div style="background-image: url('./assets/patterns/dots.svg')"></div>
+```
+
+- A reference is `assets/<path>` or `./assets/<path>`, relative to the canvas folder, in a `src`, `href`, `poster` or
+  `srcset` attribute or in a CSS `url(…)` (inline style or `<style>`). A browser that opens the board file from disk
+  resolves it by itself; the studio rewrites it on delivery (`DesignBoardAssetsService`).
+- File types: `webp`, `png`, `jpg` / `jpeg`, `gif`, `avif`, `svg`. Path segments consist of letters, digits, `.`, `_`
+  and `-`, and none starts with a dot (no `..`, no dotfiles). The file must resolve (symbolic links included) to a
+  place inside `assets/` and be at most `assetMaximumBytes`. Anything else stays unresolved, and the image is missing.
+- **Versions.** The board version stays the git blob hash of the board file. The asset files a board references have a
+  version of their own, the board's `assetsHash`: it is part of the board's `htmlUrl` and of its thumbnail key, so
+  replacing a photo reloads the boards that show it and renders their thumbnails again. Boards without assets keep the
+  thumbnails they had.
+- **Delivery.** In the iframe, each reference points at the asset route with the content token and the file's version
+  (`…/assets/<project>/<canvas>/<path>?token=…&v=<blob hash>`). The thumbnail renderer gets the files embedded as data
+  URIs; it still loads nothing from the network.
+- **Commented versions.** When a thread starts, the referenced files are kept in the object store, content-addressed by
+  their blob hash, with a manifest of the board version's paths. An earlier version is then shown with the images it
+  had; a file the snapshot did not keep (no store configured, or the thread is older than this feature) is shown as it
+  is in the checkout. Deleting the last thread of a version deletes its manifest; the files stay, as other versions
+  may show them.
+
 ## API routes
 
 Paths are relative to the route prefix of the application's controllers.
@@ -439,8 +470,9 @@ Comments written through the API have the author kind `USER`. A comment text has
 |---|---|---|
 | GET | `/boards/{projectKey}/{canvasKey}/{boardKey}` | the board HTML for the sandboxed iframe; query `token` (required), `contentHash`, `theme` |
 | GET | `/thumbnails/{thumbnailKey}` | a thumbnail PNG; query `token` (required), `size` (`full` or `small`) |
+| GET | `/assets/{projectKey}/{canvasKey}/{assetPath}` | an image of the canvas' `assets/` folder; query `token` (required), `v` (the file's blob hash: the checkout's file when it matches, else the copy kept with a commented version) |
 
-The canvas view carries ready-made URLs for both (`htmlUrl`, `thumbnailUrl`, `thumbnailSmallUrl`), including the token.
+The board HTML query also takes `assetsHash` (set in `htmlUrl`). The canvas view carries ready-made URLs for both (`htmlUrl`, `thumbnailUrl`, `thumbnailSmallUrl`), including the token.
 
 ## Console commands
 
@@ -510,18 +542,24 @@ An open request without any change for 20 minutes is closed as `FAILED` and repl
 - **Sandboxed delivery.** Board files are untrusted HTML. `<script>` elements are removed before delivery, and the
   answer carries a Content Security Policy: `default-src 'none'`, `script-src 'none'`, `connect-src 'none'`,
   `form-action 'none'`, `base-uri 'none'`, `frame-ancestors 'self'`, `sandbox`, styles inline and from
-  `https://fonts.googleapis.com`, fonts from `https://fonts.gstatic.com` and `data:`, images only as `data:` / `blob:`.
-  Thumbnails are sent with `default-src 'none'; sandbox`. Both carry `X-Content-Type-Options: nosniff`,
-  `Referrer-Policy: no-referrer` and `Cross-Origin-Resource-Policy: same-origin`.
-- **Caching.** A URL with a `contentHash` (and every thumbnail URL) is answered with
-  `Cache-Control: private, max-age=31536000, immutable`; a board URL without one with `private, no-cache`. Both carry
+  `https://fonts.googleapis.com`, fonts from `https://fonts.gstatic.com` and `data:`, images as `data:` / `blob:` and from
+  the application itself (`'self'` and the request's origin: the asset route). Thumbnails are sent with
+  `default-src 'none'; sandbox`, asset files with `default-src 'none'; style-src 'unsafe-inline'; img-src data:;
+  sandbox` (an SVG opened directly runs and loads nothing). All carry `X-Content-Type-Options: nosniff` and
+  `Referrer-Policy: no-referrer`; boards and thumbnails `Cross-Origin-Resource-Policy: same-origin`, asset files
+  `cross-origin` (they are loaded by the sandboxed iframe, whose origin is opaque).
+- **Caching.** A URL with a `contentHash` (for a board with assets: together with its current `assetsHash`), every
+  thumbnail URL and an asset URL with `v` are answered with `Cache-Control: private, max-age=31536000, immutable`; other
+  board and asset URLs with `private, no-cache`. Both carry
   an ETag.
 - **Path restrictions.** Project and canvas keys are validated against a fixed pattern. A canvas folder must be
   relative, must not contain `..`, and must resolve (symbolic links included) to a place inside the project root. A
   board key must be a plain `.html` file name of the canvas. A requested version must be 40 hex characters; a snapshot
   is only delivered when its content hashes to the requested version. Snapshot and thumbnail object keys are checked
   against the module's own key shapes before the store is read.
-- **Size limits.** `boardMaximumBytes` and `canvasJsonMaximumBytes` (see [Configuration reference](#configuration-reference)).
+- **Asset paths.** Only image types, plain segments without a leading dot, resolved inside the canvas' `assets/`
+  folder; a requested `v` must be 40 hex characters, and a kept copy is only delivered when it hashes to it.
+- **Size limits.** `boardMaximumBytes`, `canvasJsonMaximumBytes` and `assetMaximumBytes` (see [Configuration reference](#configuration-reference)).
 
 ## Frontend
 

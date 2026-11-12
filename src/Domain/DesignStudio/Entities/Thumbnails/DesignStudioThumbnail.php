@@ -16,8 +16,9 @@ use Symfony\Component\Validator\Constraints\NotNull;
 
 /**
  * A rendered picture of one board version in one look. Identified by `thumbnailKey` = SHA-256 of the board's content
- * hash, the theme hash and the renderer version (DesignStudioThumbnailsService::computeThumbnailKey): themes with the
- * same CSS share a thumbnail, and a changed board, changed theme colours or a renderer update give a new key. It is a
+ * hash, the theme hash, the renderer version and, for a board with asset files, their version
+ * (DesignStudioThumbnailsService::computeThumbnailKey): themes with the same CSS share a thumbnail, and a changed board,
+ * a replaced asset file, changed theme colours or a renderer update give a new key. It is a
  * cache of render output, not review state: rows can be deleted at any time and are rendered again on demand.
  *
  * @method static DesignStudioThumbnailsService getService()

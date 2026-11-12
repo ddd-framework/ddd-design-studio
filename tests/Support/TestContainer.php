@@ -27,6 +27,21 @@ class TestContainer extends Container
         return $this->testInstances[$id];
     }
 
+    /**
+     * Replaces the instance the container answers for an id (a test double); null removes it.
+     * @param string $id
+     * @param object|null $service
+     * @return void
+     */
+    public function setTestInstance(string $id, ?object $service): void
+    {
+        if ($service === null) {
+            unset($this->testInstances[$id]);
+            return;
+        }
+        $this->testInstances[$id] = $service;
+    }
+
     public function has(string $id): bool
     {
         return class_exists($id) || parent::has($id);

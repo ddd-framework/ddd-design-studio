@@ -1,9 +1,9 @@
 ---
 name: ddd-module-design-studio-specialist
-description: "Installs, wires and operates the ddd-design-studio module, a design review studio that shows the HTML design boards of a checkout on a canvas. Covers the directory model (canvas.json plus board files, version = git blob hash), config DesignStudio projects, api, content, statuses, retention, storage, renderer, thin controllers on the three controller traits, the public content route and its token, object storage, the optional thumbnail renderer with Messenger handler and worker, binding DesignAccessPolicyService and DesignThemeProviderService, board codes (APP ONB-W2) and code links, and the console commands app:design-studio:show, comments, comments-poll, decisions, status, theme, thumbnails, prune. Use when installing the studio, adding a project or canvas, giving boards codes or linking to a board, answering design comments as an agent, setting a board status, requesting thumbnails, or debugging an empty canvas, a missing board, No handler for message, missing thumbnails or a 404 on board content."
+description: "Installs, wires and operates the ddd-design-studio module, a review studio for the HTML design boards of a checkout. Covers the directory model (canvas.json, board files, version = git blob hash), board images from the canvas assets folder instead of base64, config DesignStudio projects, api, content, statuses, retention, storage, renderer, thin controllers on the three traits, the public content route and its token, object storage, the optional thumbnail renderer (Messenger handler, worker), binding DesignAccessPolicyService and DesignThemeProviderService, board codes (APP ONB-W2) and code links, and app:design-studio:show, comments, comments-poll, decisions, status, theme, thumbnails, prune. Use when installing the studio, adding a canvas, putting photos into boards, linking to a board, answering design comments as an agent, setting a board status, requesting thumbnails, or debugging an empty canvas, a missing board or image, No handler for message, missing thumbnails or a 404 on board content."
 metadata:
   author: mgamadeus
-  version: "0.2.4"
+  version: "0.3.0"
   module: mgamadeus/ddd-design-studio
 ---
 
@@ -153,6 +153,28 @@ return [
 Board defaults: `x` / `y` 0, `w` 390, `h` 844, `title` = file name. A board belongs to the lowest section title with
 `y <= board.y`. An entry is skipped silently when its key is not a plain `.html` file name, starts with a dot or does
 not match the canvas' `boards` patterns. A missing or oversized file is left out with a warning.
+
+## Images in boards: `assets/`
+
+Put images into `<canvas folder>/assets/` and reference them relative to the canvas folder; do not embed them as
+base64 (every board would carry every photo, and each regeneration adds megabytes of new git objects):
+
+```html
+<img src="assets/photos/start-hero-m.webp" alt="">
+<img srcset="assets/photos/hero.webp 1x, assets/photos/hero@2x.webp 2x">
+<section style="background-image: url('./assets/photos/team.webp')"></section>
+```
+
+- Recognised in `src`, `href`, `poster`, `srcset` and CSS `url(…)`; `assets/<path>` or `./assets/<path>`.
+- Types `webp`, `png`, `jpg`, `jpeg`, `gif`, `avif`, `svg`; at most `DesignStudio.content.assetMaximumBytes` (5 MiB by
+  default; the application's `content.php` must then name all three keys). Segments: letters, digits, `.`, `_`, `-`; no
+  dotfiles, no `..`, no symbolic link out of `assets/`.
+- The board file stays unchanged; the studio rewrites the references on delivery (token and file version in the URL).
+  Opened from disk (a local render script, a browser) the relative paths work as they are.
+- Replacing a photo changes the board's `assetsHash`: the boards that show it reload and get new thumbnails; the board
+  version (`git hash-object`) does not change.
+- A thread keeps the referenced files with its snapshot, so an earlier commented version shows its old images.
+- The `assets/` folder must be deployed with the canvas folder (web and worker image).
 
 ## Operate through the console commands
 
@@ -331,6 +353,7 @@ class AppDesignAccessPolicyService extends DesignAccessPolicyService
 | Every studio request fails with `Design studio config: …` | Invalid or duplicate key, or unsafe folder in `DesignStudio.projects` |
 | Board iframe or thumbnail answers 404 | By design every failure is a 404: content route not public at the firewall or not at `contentBasePath`; token missing or expired (reload the canvas view for new URLs); the account lost `canView()`; requested version neither in the checkout nor kept as a snapshot |
 | Board iframe answers 401 / 403 | The firewall still protects the content path; add the `PUBLIC_ACCESS` rule above the admin rule |
+| An image of a board is missing | The reference is not `assets/…` / `./assets/…` in `src`, `href`, `poster`, `srcset` or `url()`; the type is not an image type; the path has a dot segment or other characters; the file is larger than `assetMaximumBytes`, resolves outside `assets/`, or is not in the deployed image |
 | Old version of a commented board cannot be shown | No object store was configured when the thread started (no snapshot), or the snapshot object is gone |
 | `No handler for message "…RenderDesignStudioThumbnailsMessage"` | The handler tag is missing in `services.yaml`, or the worker runs a container built before it was added. Add the tag, rebuild the container, restart the workers |
 | Render request stays `QUEUED` | No consumer on `render_design_studio_thumbnails`, transport or routing missing, or the message's account fails `canView()` in the worker. After 20 minutes without change the next request replaces it |

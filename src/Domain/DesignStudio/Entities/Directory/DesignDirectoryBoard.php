@@ -44,4 +44,10 @@ class DesignDirectoryBoard extends ValueObject
 
     /** @var int File size in bytes */
     public int $byteSize = 0;
+
+    /**
+     * @var string|null Version of the asset files the board references (`assets/…`): changes when one of them is
+     *      added, removed or replaced; null when the board references none
+     */
+    public ?string $assetsHash = null;
 }

@@ -10,4 +10,6 @@ return [
     'boardMaximumBytes' => 16 * 1024 * 1024,
     // largest canvas.json read
     'canvasJsonMaximumBytes' => 4 * 1024 * 1024,
+    // largest asset file delivered (images under <canvas folder>/assets/); a larger file is not delivered
+    'assetMaximumBytes' => 5 * 1024 * 1024,
 ];

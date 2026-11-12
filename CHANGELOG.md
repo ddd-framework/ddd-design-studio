@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.3.0
+
+- **Board images from `assets/`:** a board may reference image files of `<canvas folder>/assets/` (`assets/<path>` or
+  `./assets/<path>` in `src`, `href`, `poster`, `srcset` or CSS `url(…)`) instead of embedding them as data URIs. Types
+  webp, png, jpg, jpeg, gif, avif, svg; plain path segments without a leading dot, resolved inside `assets/`; at most
+  `DesignStudio.content.assetMaximumBytes` (new key, default 5 MiB). The board file is not changed; on delivery the
+  references point at the new content route `GET /assets/{projectKey}/{canvasKey}/{assetPath}` (token, file version
+  `v`), and the thumbnail renderer gets the files as data URIs (`DesignBoardAssetsService`).
+- **Asset versions:** `DesignDirectoryBoard::$assetsHash` (the version of the files a board references) is part of the
+  board's `htmlUrl` and of its thumbnail key, so a replaced photo reloads the board and renders new thumbnails; boards
+  without assets keep their keys and thumbnails. The board version stays the git blob hash of the board file.
+- **Snapshots:** a new thread keeps the referenced files content-addressed with a manifest of the version, so an
+  earlier commented version shows the images it had.
+- **CSP:** `img-src` of board HTML also allows the application itself (`'self'` and the request's origin).
+- An application file `config/app/DesignStudio/content.php` must name the new key `assetMaximumBytes` (config files are
+  replaced as a whole); without it the default applies.
+
 ## 0.2.4
 
 - **Peer ranges:** `@reduxjs/toolkit` `^2.6.0` (the oldest release with every RTK Query type the package uses),

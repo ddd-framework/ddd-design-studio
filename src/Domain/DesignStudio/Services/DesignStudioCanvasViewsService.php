@@ -161,9 +161,16 @@ class DesignStudioCanvasViewsService extends Service
             $designStudioBoardView->openThreadCount = $openThreadCounts[$boardKey] ?? 0;
             if ($designDirectoryBoard->contentHash !== null) {
                 // the content hash in the URL makes it change exactly when the board (or its look) changes
+                // … and the assets hash when an asset file the board shows changes
                 $designStudioBoardView->htmlUrl = $boardBasePath . rawurlencode($boardKey) . '?' . $tokenQuery
-                    . '&contentHash=' . $designDirectoryBoard->contentHash . $themeQuery;
-                $thumbnailKey = $designStudioThumbnailsService->computeThumbnailKey($designDirectoryBoard->contentHash, $themeHash);
+                    . '&contentHash=' . $designDirectoryBoard->contentHash
+                    . ($designDirectoryBoard->assetsHash !== null ? '&assetsHash=' . $designDirectoryBoard->assetsHash : '')
+                    . $themeQuery;
+                $thumbnailKey = $designStudioThumbnailsService->computeThumbnailKey(
+                    $designDirectoryBoard->contentHash,
+                    $themeHash,
+                    $designDirectoryBoard->assetsHash
+                );
                 $designStudioThumbnail = $designStudioThumbnails?->getByThumbnailKey($thumbnailKey);
                 if ($designStudioThumbnail) {
                     $thumbnailUrl = $contentBasePath . '/thumbnails/' . $thumbnailKey . '?' . $tokenQuery;

@@ -38,6 +38,11 @@ class DesignStudioBoardContentGetRequestDto extends RequestDto
     #[Length(max: 40)]
     public ?string $contentHash = null;
 
+    /** @var string|null Version of the asset files the board shows (assets hash of the canvas response); omitted = none */
+    #[Parameter(in: Parameter::QUERY, required: false)]
+    #[Length(max: 40)]
+    public ?string $assetsHash = null;
+
     /** @var string|null Theme reference `<themeId>[:<mode>]`; omitted = no theme */
     #[Parameter(in: Parameter::QUERY, required: false)]
     #[Length(max: 255)]
