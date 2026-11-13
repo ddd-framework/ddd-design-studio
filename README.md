@@ -527,7 +527,11 @@ boards. A run renders the boards of its shard (priority boards first) for at mos
 message. Renderer answers 401, 404, 429, 502 to 504 and transport failures make the request wait
 (`WAITING_FOR_RENDERER`) and retry with exponential backoff (30 seconds doubling up to 10 minutes, 30 attempts, then
 `FAILED`). Another failure concerns one board: it is recorded in `lastError` and the other boards are still rendered.
-An open request without any change for 20 minutes is closed as `FAILED` and replaced on the next request.
+A board whose file or asset files change between the listing and its render (boards regenerated during a run) is read
+again in a follow-up run of its shard 10 seconds later. A shard that is through looks at the other shards' boards every
+minute; the request closes when nothing is missing, or when the missing boards stayed the same for 3 minutes while no
+shard waits for the renderer (`lastError` then says how many could not be rendered). An open request without any change
+for 20 minutes counts as lost: opening the canvas closes it as `FAILED` and files a new one.
 
 ## Security
 

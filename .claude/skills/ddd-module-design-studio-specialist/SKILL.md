@@ -3,7 +3,7 @@ name: ddd-module-design-studio-specialist
 description: "Installs, wires and operates the ddd-design-studio module, a review studio for the HTML design boards of a checkout. Covers the directory model (canvas.json, board files, version = git blob hash), board images from the canvas assets folder instead of base64, config DesignStudio projects, api, content, statuses, retention, storage, renderer, thin controllers on the three traits, the public content route and its token, object storage, the optional thumbnail renderer (Messenger handler, worker), binding DesignAccessPolicyService and DesignThemeProviderService, board codes (APP ONB-W2) and code links, and app:design-studio:show, comments, comments-poll, decisions, status, theme, thumbnails, prune. Use when installing the studio, adding a canvas, putting photos into boards, linking to a board, answering design comments as an agent, setting a board status, requesting thumbnails, or debugging an empty canvas, a missing board or image, No handler for message, missing thumbnails or a 404 on board content."
 metadata:
   author: mgamadeus
-  version: "0.3.1"
+  version: "0.3.2"
   module: mgamadeus/ddd-design-studio
 ---
 
@@ -290,7 +290,10 @@ Off by default (`DesignStudio.renderer.enabled` = `false`): the canvas view then
    ```
 
 Request statuses: `QUEUED`, `RUNNING`, `WAITING_FOR_RENDERER` (renderer answered 401, 404, 429, 502 to 504 or was
-unreachable; retried with backoff), `DONE`, `FAILED`. A thumbnail key is derived from content hash, theme hash and
+unreachable; retried with backoff), `DONE`, `FAILED`. A request stays open only while a shard has a queued or running
+message: a board that changed during the run is read again 10 seconds later, a shard that is through watches the others
+every minute and closes the request when nothing renderable is missing (missing boards unchanged for 3 minutes, no shard
+waiting for the renderer). Opening a canvas replaces a request without change for 20 minutes. A thumbnail key is derived from content hash, theme hash and
 `rendererVersion`: changing `rendererVersion` makes every thumbnail render anew.
 
 ## Bind the access policy and themes

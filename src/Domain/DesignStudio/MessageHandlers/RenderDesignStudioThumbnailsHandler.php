@@ -29,7 +29,10 @@ class RenderDesignStudioThumbnailsHandler extends AppMessageHandler
         $designStudioThumbnailRenderRequestsService->processRequest(
             (int)$renderDesignStudioThumbnailsMessage->renderRequestId,
             $renderDesignStudioThumbnailsMessage->shard,
-            $renderDesignStudioThumbnailsMessage->shardCount
+            $renderDesignStudioThumbnailsMessage->shardCount,
+            $renderDesignStudioThumbnailsMessage->changedBoardFollowUpCount,
+            $renderDesignStudioThumbnailsMessage->remainingBoardsFingerprint,
+            $renderDesignStudioThumbnailsMessage->remainingBoardsUnchangedSince
         );
     }
 }

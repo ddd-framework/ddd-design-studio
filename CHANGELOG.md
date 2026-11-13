@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.2
+
+- **Fix: a render request no longer stays `RUNNING` without a run.** A board whose file or asset files changed between
+  the listing and its render was skipped; when every board of a shard was skipped, no shard closed the request and the
+  canvas showed "being rendered" until someone rendered by hand. Now a shard reads its changed boards again in a
+  follow-up run 10 seconds later (at most 10 in a row), and a shard that is through watches the boards of the other
+  shards every minute: the request closes when nothing is missing, or when the missing boards stayed the same for 3
+  minutes while no shard waits for the renderer. Opening a canvas replaces an open request without change for 20
+  minutes (before, only a new request from the canvas did, which an open canvas does not file).
+- `RenderDesignStudioThumbnailsMessage` carries the follow-up state (`changedBoardFollowUpCount`,
+  `remainingBoardsFingerprint`, `remainingBoardsUnchangedSince`); messages queued by 0.3.1 run as before.
+- **Canvas: "Present this section" starts at the selected board.** With a board selected, the Play button presents
+  that board's section from that board on (← / → go on from there); without a selection, the section in view from its
+  first board as before.
+
 ## 0.3.1
 
 - **Fix: canvases with more than 50 boards.** The entity sets of statuses, comments, thumbnails and thumbnail render

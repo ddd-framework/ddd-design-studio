@@ -6,6 +6,7 @@ namespace DDD\Domain\DesignStudio\Services;
 
 use DDD\Domain\DesignStudio\Entities\Definitions\DesignCanvasDefinition;
 use DDD\Domain\DesignStudio\Entities\Directory\DesignDirectoryBoard;
+use DDD\Domain\DesignStudio\Entities\Directory\DesignDirectoryBoards;
 use DDD\Domain\DesignStudio\Entities\Thumbnails\RenderRequests\DesignStudioThumbnailRenderRequest;
 use DDD\Domain\DesignStudio\Entities\Thumbnails\RenderRequests\DesignStudioThumbnailRenderRequests;
 use DDD\Domain\DesignStudio\MessageHandlers\RenderDesignStudioThumbnailsMessage;
@@ -34,7 +35,9 @@ use Symfony\Component\Messenger\Stamp\DelayStamp;
  *   board belongs to shard crc32(boardKey) % n; the next board of a shard is already rendering while the previous
  *   one is stored. A run works for at most RUN_BUDGET_SECONDS, then hands over to a fresh message of its shard.
  * - The boards are read from the checkout of the worker at each run: a board that changed meanwhile is rendered in
- *   its new version.
+ *   its new version (a follow-up run reads them again when one changed during the run).
+ * - A shard that is through watches the boards of the other shards until nothing renderable is missing; then the
+ *   request closes. A request never stays open without a queued or running message.
  * - Renderer busy / restarting / unreachable (401, 404, 429, 502–504, transport): the request waits
  *   (WAITING_FOR_RENDERER) and is retried with exponential backoff; thumbnails stay as they are.
  *
@@ -70,6 +73,21 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
 
     /** @var int Seconds without any sign of a render run after which an open request counts as lost and is replaced */
     public const int STALLED_AFTER_SECONDS = 1200;
+
+    /** @var int Seconds until a shard whose board changed during its run reads the boards again */
+    public const int CHANGED_BOARD_FOLLOW_UP_DELAY_SECONDS = 10;
+
+    /** @var int Follow-up runs in a row for changed boards; then the board counts as not renderable for this request */
+    public const int MAX_CHANGED_BOARD_FOLLOW_UPS = 10;
+
+    /** @var int Seconds between two looks of a finished shard at the boards the other shards still render */
+    public const int REMAINING_BOARDS_WATCH_DELAY_SECONDS = 60;
+
+    /**
+     * @var int Seconds the remaining boards may stay the same (no shard waiting for the renderer) before the request
+     *          closes: longer than one run plus the render of one board, so a working shard always shows progress
+     */
+    public const int REMAINING_BOARDS_SETTLED_AFTER_SECONDS = 180;
 
     /**
      * Files (or refreshes) the render request of a canvas in a look; null when the renderer is off or nothing is
@@ -159,9 +177,19 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
      * One render run of a request (the Messenger job) for one shard: renders the shard's missing boards (priority
      * boards first) until the run budget is used up, then continues in a new message of the same shard; the request
      * is closed when nothing is missing any more.
+     *
+     * - A board whose file or assets changed between the listing and its render is not rendered in the old version:
+     *   a follow-up run of the shard reads the boards again shortly after (at most MAX_CHANGED_BOARD_FOLLOW_UPS in a
+     *   row).
+     * - A shard that is through while other shards' boards are still missing watches them in follow-up runs: the
+     *   request closes when nothing is missing, or when the missing boards stayed the same for
+     *   REMAINING_BOARDS_SETTLED_AFTER_SECONDS while no shard waits for the renderer (they cannot be rendered).
      * @param int $renderRequestId
      * @param int $shard 0 … $shardCount - 1
      * @param int $shardCount
+     * @param int $changedBoardFollowUpCount follow-up runs in a row for changed boards before this one
+     * @param string|null $remainingBoardsFingerprint the missing boards a watching run saw last; null = no watching run
+     * @param int|null $remainingBoardsUnchangedSince since when (Unix time) the missing boards are the same
      * @return void
      * @throws BadRequestException
      * @throws ImagickException
@@ -171,8 +199,14 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
      * @throws OptimisticLockException
      * @throws ReflectionException
      */
-    public function processRequest(int $renderRequestId, int $shard = 0, int $shardCount = 1): void
-    {
+    public function processRequest(
+        int $renderRequestId,
+        int $shard = 0,
+        int $shardCount = 1,
+        int $changedBoardFollowUpCount = 0,
+        ?string $remainingBoardsFingerprint = null,
+        ?int $remainingBoardsUnchangedSince = null
+    ): void {
         $shardCount = max(1, $shardCount);
         $shard = max(0, min($shardCount - 1, $shard));
         $renderRequest = $this->find($renderRequestId, false);
@@ -217,7 +251,10 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
             static fn(DesignDirectoryBoard $designDirectoryBoard): bool => static::getShardOfBoard((string)$designDirectoryBoard->boardKey, $shardCount) === $shard
         ));
         if (!$shardBoards) {
-            // the other shards finish the rest; the last one closes the request
+            // the other shards render the rest; a shard that rendered boards watches them, a watching run goes on watching
+            if ($remainingBoardsFingerprint !== null) {
+                $this->closeOrWatchRequest($renderRequest, $boardsWithoutThumbnail, $shard, $shardCount, $remainingBoardsFingerprint, $remainingBoardsUnchangedSince);
+            }
             return;
         }
         if ($renderRequest->status !== DesignStudioThumbnailRenderRequest::STATUS_RUNNING) {
@@ -225,12 +262,16 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
         }
         $startedAt = time();
         $renderedBoardCount = 0;
+        $changedBoardKeys = [];
         // one board at a time per shard; the next one is already rendering while the previous one is stored
         $pendingBoard = null;
         $pendingRenderer = null;
         foreach ($shardBoards as $designDirectoryBoard) {
             $isOverBudget = time() - $startedAt >= static::RUN_BUDGET_SECONDS;
             $startedRenderer = $isOverBudget ? null : $this->startRender($canvasDefinition, $designDirectoryBoard, $themeHash, $themeStyle);
+            if (!$isOverBudget && $startedRenderer === null) {
+                $changedBoardKeys[] = (string)$designDirectoryBoard->boardKey;
+            }
             if ($pendingRenderer !== null) {
                 if (!$this->finishRender($renderRequest, $pendingBoard, $pendingRenderer, $shard, $shardCount)) {
                     $startedRenderer?->finishRender();
@@ -254,8 +295,43 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
             $renderedBoardCount++;
         }
         $this->logRun($renderRequest, $shard, $shardCount, $renderedBoardCount, $startedAt);
-        // this shard is through; the request is done when no shard has anything left that can be rendered
-        $remainingBoards = $designStudioThumbnailsService->findBoardsWithoutThumbnail($designDirectoryCanvas->boards, $themeHash);
+        if ($changedBoardKeys !== []) {
+            if ($changedBoardFollowUpCount < static::MAX_CHANGED_BOARD_FOLLOW_UPS) {
+                // a board changed between the listing and its render: read the boards again and render the new version
+                $this->dispatchRun($renderRequest, static::CHANGED_BOARD_FOLLOW_UP_DELAY_SECONDS, $shard, $shardCount, $changedBoardFollowUpCount + 1);
+                return;
+            }
+            $this->storeLastError($renderRequest, implode(', ', $changedBoardKeys) . ': changed during every run, not rendered');
+        }
+        // this shard is through: the boards are read again, a board that changed meanwhile is missing in its new version
+        $remainingBoards = $designStudioThumbnailsService->findBoardsWithoutThumbnail(
+            $this->getDesignDirectoryReaderService()->readCanvas($canvasDefinition)->boards,
+            $themeHash
+        );
+        $this->closeOrWatchRequest($renderRequest, $remainingBoards, $shard, $shardCount, $remainingBoardsFingerprint, $remainingBoardsUnchangedSince);
+    }
+
+    /**
+     * Closes a request when no shard has anything left that can be rendered; otherwise a follow-up run of this shard
+     * looks again after REMAINING_BOARDS_WATCH_DELAY_SECONDS. Missing boards of other shards that stay the same for
+     * REMAINING_BOARDS_SETTLED_AFTER_SECONDS while no shard waits for the renderer cannot be rendered: the request
+     * closes then too (a shard that skipped or failed them, or whose message is gone, leaves no request open).
+     * @param DesignStudioThumbnailRenderRequest $renderRequest
+     * @param DesignDirectoryBoards $remainingBoards the boards still without a thumbnail
+     * @param int $shard
+     * @param int $shardCount
+     * @param string|null $remainingBoardsFingerprint the missing boards the previous watching run saw
+     * @param int|null $remainingBoardsUnchangedSince
+     * @return void
+     */
+    protected function closeOrWatchRequest(
+        DesignStudioThumbnailRenderRequest $renderRequest,
+        DesignDirectoryBoards $remainingBoards,
+        int $shard,
+        int $shardCount,
+        ?string $remainingBoardsFingerprint,
+        ?int $remainingBoardsUnchangedSince
+    ): void {
         $hasBoardOfAnotherShard = false;
         foreach ($remainingBoards->getElements() as $remainingBoard) {
             if (static::getShardOfBoard((string)$remainingBoard->boardKey, $shardCount) !== $shard) {
@@ -264,9 +340,57 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
             }
         }
         if (!$hasBoardOfAnotherShard) {
-            // what is left in this shard could not be rendered (lastError names the board)
+            // nothing missing, or what is left in this shard could not be rendered (lastError names the board)
             $this->setStatus($renderRequest, DesignStudioThumbnailRenderRequest::STATUS_DONE, $renderRequest->lastError ?? null);
+            return;
         }
+        $currentTimestamp = $this->getCurrentTimestamp();
+        $currentFingerprint = static::computeRemainingBoardsFingerprint($remainingBoards);
+        if ($currentFingerprint !== $remainingBoardsFingerprint || $remainingBoardsUnchangedSince === null) {
+            $remainingBoardsUnchangedSince = $currentTimestamp;
+        } elseif (
+            $renderRequest->status !== DesignStudioThumbnailRenderRequest::STATUS_WAITING_FOR_RENDERER
+            && $currentTimestamp - $remainingBoardsUnchangedSince >= static::REMAINING_BOARDS_SETTLED_AFTER_SECONDS
+        ) {
+            // no shard renders them any more
+            $this->setStatus(
+                $renderRequest,
+                DesignStudioThumbnailRenderRequest::STATUS_DONE,
+                $renderRequest->lastError ?? mb_substr($remainingBoards->count() . ' board(s) could not be rendered', 0, 1000)
+            );
+            return;
+        }
+        $this->dispatchRun(
+            $renderRequest,
+            static::REMAINING_BOARDS_WATCH_DELAY_SECONDS,
+            $shard,
+            $shardCount,
+            0,
+            $currentFingerprint,
+            $remainingBoardsUnchangedSince
+        );
+    }
+
+    /**
+     * @param DesignDirectoryBoards $remainingBoards
+     * @return string changes when a board is rendered, added, removed or changed
+     */
+    public static function computeRemainingBoardsFingerprint(DesignDirectoryBoards $remainingBoards): string
+    {
+        $boardVersions = [];
+        foreach ($remainingBoards->getElements() as $remainingBoard) {
+            $boardVersions[] = $remainingBoard->boardKey . ':' . $remainingBoard->contentHash . ':' . ($remainingBoard->assetsHash ?? '');
+        }
+        sort($boardVersions);
+        return hash('sha256', implode("\n", $boardVersions));
+    }
+
+    /**
+     * @return int the current Unix time (a seam for tests)
+     */
+    protected function getCurrentTimestamp(): int
+    {
+        return time();
     }
 
     /**
@@ -313,11 +437,28 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
      * @param int $delaySeconds
      * @param int $shard
      * @param int $shardCount
+     * @param int $changedBoardFollowUpCount follow-up runs in a row for changed boards
+     * @param string|null $remainingBoardsFingerprint set for a watching run
+     * @param int|null $remainingBoardsUnchangedSince
      * @return void
      */
-    public function dispatchRun(DesignStudioThumbnailRenderRequest $renderRequest, int $delaySeconds, int $shard = 0, int $shardCount = 1): void
-    {
-        $message = new RenderDesignStudioThumbnailsMessage((int)$renderRequest->id, $shard, $shardCount);
+    public function dispatchRun(
+        DesignStudioThumbnailRenderRequest $renderRequest,
+        int $delaySeconds,
+        int $shard = 0,
+        int $shardCount = 1,
+        int $changedBoardFollowUpCount = 0,
+        ?string $remainingBoardsFingerprint = null,
+        ?int $remainingBoardsUnchangedSince = null
+    ): void {
+        $message = new RenderDesignStudioThumbnailsMessage(
+            (int)$renderRequest->id,
+            $shard,
+            $shardCount,
+            $changedBoardFollowUpCount,
+            $remainingBoardsFingerprint,
+            $remainingBoardsUnchangedSince
+        );
         $message->dispatch($delaySeconds > 0 ? [new DelayStamp($delaySeconds * 1000)] : []);
     }
 
@@ -335,22 +476,9 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
         string $themeHash,
         ?string $themeStyle
     ): ?ArgusDesignBoardRenderedThumbnails {
-        $boardContent = $this->getDesignDirectoryReaderService()->readBoardContent($canvasDefinition, (string)$designDirectoryBoard->boardKey);
-        // only the version the key names is rendered; a file that changed since the listing waits for the next run
-        if ($boardContent === null || DesignDirectoryReaderService::computeContentHash($boardContent) !== $designDirectoryBoard->contentHash) {
+        $boardContent = $this->readBoardContentForRender($canvasDefinition, $designDirectoryBoard);
+        if ($boardContent === null) {
             return null;
-        }
-        /** @var DesignBoardAssetsService $designBoardAssetsService */
-        $designBoardAssetsService = DDDService::instance()->getService(DesignBoardAssetsService::class);
-        $assetPaths = DesignBoardAssetsService::findReferencedAssetPaths($boardContent);
-        if ($assetPaths !== []) {
-            // the same for the asset files: the key names their version too
-            $assetsHash = $designBoardAssetsService->findCurrentAssetReferences($canvasDefinition, $assetPaths)->computeAssetsHash();
-            if ($assetsHash !== $designDirectoryBoard->assetsHash) {
-                return null;
-            }
-            // the renderer loads nothing from the network: the asset files travel inside the board
-            $boardContent = $designBoardAssetsService->inlineAssetReferences($boardContent, $canvasDefinition);
         }
         $renderer = new ArgusDesignBoardRenderedThumbnails();
         $renderer->html = $boardContent;
@@ -360,6 +488,35 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
         $renderer->themeStyle = $themeStyle ?? '';
         $renderer->startRender();
         return $renderer;
+    }
+
+    /**
+     * The board's HTML with its asset files inlined, in exactly the version the listing names; null when the file or an
+     * asset file changed since the listing (or cannot be read any more).
+     * @param DesignCanvasDefinition $canvasDefinition
+     * @param DesignDirectoryBoard $designDirectoryBoard
+     * @return string|null
+     */
+    protected function readBoardContentForRender(DesignCanvasDefinition $canvasDefinition, DesignDirectoryBoard $designDirectoryBoard): ?string
+    {
+        $boardContent = $this->getDesignDirectoryReaderService()->readBoardContent($canvasDefinition, (string)$designDirectoryBoard->boardKey);
+        // only the version the key names is rendered; a file that changed since the listing is read again
+        if ($boardContent === null || DesignDirectoryReaderService::computeContentHash($boardContent) !== $designDirectoryBoard->contentHash) {
+            return null;
+        }
+        $assetPaths = DesignBoardAssetsService::findReferencedAssetPaths($boardContent);
+        if ($assetPaths === []) {
+            return $boardContent;
+        }
+        /** @var DesignBoardAssetsService $designBoardAssetsService */
+        $designBoardAssetsService = DDDService::instance()->getService(DesignBoardAssetsService::class);
+        // the same for the asset files: the key names their version too
+        $assetsHash = $designBoardAssetsService->findCurrentAssetReferences($canvasDefinition, $assetPaths)->computeAssetsHash();
+        if ($assetsHash !== $designDirectoryBoard->assetsHash) {
+            return null;
+        }
+        // the renderer loads nothing from the network: the asset files travel inside the board
+        return $designBoardAssetsService->inlineAssetReferences($boardContent, $canvasDefinition);
     }
 
     /**
@@ -394,8 +551,7 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
                 return false;
             }
             // this board cannot be rendered (e.g. 400 invalid HTML): the others still can
-            $renderRequest->lastError = mb_substr("$designDirectoryBoard->boardKey: HTTP $renderer->failureStatusCode $renderer->failureReason", 0, 1000);
-            $renderRequest->updatePartialIgnoringRights('lastError');
+            $this->storeLastError($renderRequest, "$designDirectoryBoard->boardKey: HTTP $renderer->failureStatusCode $renderer->failureReason");
             return true;
         }
         $this->getDesignStudioThumbnailsService()->storeThumbnail($designDirectoryBoard, $renderer->themeHash, (string)$renderer->png);
@@ -444,7 +600,7 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
      * @throws InvalidArgumentException
      * @throws ReflectionException
      */
-    protected function isStalled(DesignStudioThumbnailRenderRequest $renderRequest): bool
+    public function isStalled(DesignStudioThumbnailRenderRequest $renderRequest): bool
     {
         $stalledBefore = time() - static::STALLED_AFTER_SECONDS;
         $lastChange = $renderRequest->changeHistory->modifiedTime ?? $renderRequest->changeHistory->createdTime ?? null;
@@ -462,6 +618,17 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
         $renderRequest->status = $status;
         $renderRequest->lastError = $lastError;
         $renderRequest->updatePartialIgnoringRights('status', 'lastError');
+    }
+
+    /**
+     * @param DesignStudioThumbnailRenderRequest $renderRequest
+     * @param string $lastError
+     * @return void
+     */
+    protected function storeLastError(DesignStudioThumbnailRenderRequest $renderRequest, string $lastError): void
+    {
+        $renderRequest->lastError = mb_substr($lastError, 0, 1000);
+        $renderRequest->updatePartialIgnoringRights('lastError');
     }
 
     /**

@@ -186,6 +186,11 @@ class DesignStudioCanvasViewsService extends Service
             /** @var DesignStudioThumbnailRenderRequestsService $designStudioThumbnailRenderRequestsService */
             $designStudioThumbnailRenderRequestsService = DDDService::instance()->getService(DesignStudioThumbnailRenderRequestsService::class);
             $latestRenderRequest = $designStudioThumbnailRenderRequestsService->findLatestRequest($canvasDefinition, $themeHash);
+            if ($latestRenderRequest && $latestRenderRequest->isOpen() && $designStudioThumbnailRenderRequestsService->isStalled($latestRenderRequest)) {
+                // no render run for a long time (its messages are gone): a new request takes over, no manual render needed
+                $latestRenderRequest = $designStudioThumbnailRenderRequestsService->requestRendering($canvasDefinition, $themeReference, [], $viewer)
+                    ?? $designStudioThumbnailRenderRequestsService->findLatestRequest($canvasDefinition, $themeHash);
+            }
             $designStudioCanvasView->renderRequestStatus = $latestRenderRequest->status ?? null;
             $designStudioCanvasView->renderRequestError = $latestRenderRequest->lastError ?? null;
         }

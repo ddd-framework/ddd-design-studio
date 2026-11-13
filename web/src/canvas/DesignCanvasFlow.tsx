@@ -22,7 +22,7 @@ import { useDesignStudio, useDesignStudioComponents } from '../provider/DesignSt
 import { cx } from '../utils/cx';
 import { type BoardFlowNode, BoardNode } from './BoardNode';
 import { type BoardRect, selectLiveBoardIds, selectVisibleBoardIds } from './boardDetail';
-import { type CanvasLayout, findSectionAt, type LayoutRect } from './canvasLayout';
+import { type CanvasLayout, findSectionAt, findSectionPresentationStart, type LayoutRect } from './canvasLayout';
 import { type CanvasViewport, formatViewportParam, withoutContentToken } from './canvasLiveUpdate';
 import { sectionNodeId } from './canvasView';
 import { type SectionFlowNode, SectionNode } from './SectionNode';
@@ -87,7 +87,8 @@ export interface DesignCanvasFlowProps {
   onVisibleBoardIdsChange?: (visibleBoardIds: string[]) => void;
   onPaneClick: () => void;
   /** "Present" for the section in the middle of the view. */
-  onPresentSection: (sectionId: string) => void;
+  /** Presents a section from the given board on (←/→ go on from there). */
+  onPresentSection: (sectionId: string, startBoardId: string) => void;
   /** Left toolbar content after the tools (canvas name, search, filters). */
   toolbarStart: ReactNode;
   /** Controls of the right toolbar group before the zoom (theme, theme mode, comments, fullscreen). */
@@ -563,9 +564,10 @@ const FlowCanvas = ({
     const section = sectionInView();
     if (section) fitNodes([sectionNodeId(section.id)]);
   };
+  // a selected board: its section from that board on; else the section in view from its first board
   const presentCurrentSection = () => {
-    const section = sectionInView();
-    if (section) onPresentSection(section.id);
+    const presentationStart = findSectionPresentationStart(layout.sections, selectedNodeId, sectionInView());
+    if (presentationStart) onPresentSection(presentationStart.sectionId, presentationStart.boardId);
   };
   // Marquee selection with the select tool (Space or the middle button pans meanwhile, React Flow's defaults).
   const [marquee, setMarquee] = useState<Marquee | null>(null);

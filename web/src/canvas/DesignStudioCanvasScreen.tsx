@@ -656,8 +656,9 @@ export const DesignStudioCanvasScreen = ({ projectKey, canvasKey }: DesignStudio
     writeSearchParams({ [BOARD_PARAM]: null });
   }, [writeSearchParams]);
   const presentSection = useCallback(
-    (sectionId: string) => {
-      const firstBoardId = layout.sections.find(section => section.id === sectionId)?.boardIds[0];
+    (sectionId: string, startBoardId?: string) => {
+      const sectionBoardIds = layout.sections.find(section => section.id === sectionId)?.boardIds ?? [];
+      const firstBoardId = startBoardId && sectionBoardIds.includes(startBoardId) ? startBoardId : sectionBoardIds[0];
       if (!firstBoardId) return;
       setPresentSectionId(sectionId);
       openBoard(firstBoardId);

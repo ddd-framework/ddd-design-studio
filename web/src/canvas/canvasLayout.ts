@@ -227,3 +227,26 @@ export const findSectionAt = (
   }
   return nearest;
 };
+
+/** Where "Present this section" starts: a section and the board shown first. */
+export interface SectionPresentationStart {
+  sectionId: string;
+  boardId: string;
+}
+
+/**
+ * Where "Present this section" starts: with a selected board, its section from that board on; without one, the
+ * section in view from its first board. Undefined when there is nothing to present.
+ */
+export const findSectionPresentationStart = (
+  sections: readonly LayoutSection[],
+  selectedBoardId: string | null,
+  sectionInView: LayoutSection | undefined
+): SectionPresentationStart | undefined => {
+  if (selectedBoardId) {
+    const sectionOfSelectedBoard = sections.find(section => section.boardIds.includes(selectedBoardId));
+    if (sectionOfSelectedBoard) return { sectionId: sectionOfSelectedBoard.id, boardId: selectedBoardId };
+  }
+  const firstBoardId = sectionInView?.boardIds[0];
+  return sectionInView && firstBoardId ? { sectionId: sectionInView.id, boardId: firstBoardId } : undefined;
+};
