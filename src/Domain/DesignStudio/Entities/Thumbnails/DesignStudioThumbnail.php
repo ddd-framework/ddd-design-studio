@@ -36,6 +36,9 @@ class DesignStudioThumbnail extends Entity
     /** @var string Size of the delivery route: the reduced copy for far zoom levels */
     public const string SIZE_SMALL = 'small';
 
+    /** @var string The preview copy for the canvas (DesignStudioFilesService::PREVIEW_THUMBNAIL_WIDTH wide, WebP / JPEG) */
+    public const string SIZE_PREVIEW = 'preview';
+
     /** @var string|null SHA-256 of (content hash, theme hash, renderer version) */
     #[NotNull]
     #[Length(max: 64)]

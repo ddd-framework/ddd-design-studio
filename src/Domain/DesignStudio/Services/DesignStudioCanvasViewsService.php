@@ -206,6 +206,7 @@ class DesignStudioCanvasViewsService extends Service
                     $thumbnailUrl = $contentBasePath . '/thumbnails/' . $thumbnailKey . '?' . $tokenQuery;
                     $designStudioBoardView->thumbnailUrl = $thumbnailUrl;
                     $designStudioBoardView->thumbnailSmallUrl = $thumbnailUrl . '&size=' . DesignStudioThumbnail::SIZE_SMALL;
+                    $designStudioBoardView->thumbnailPreviewUrl = $thumbnailUrl . '&size=' . DesignStudioThumbnail::SIZE_PREVIEW;
                 } elseif ($isRendererEnabled && !$designDirectoryBoard->isResponsive) {
                     $designStudioCanvasView->missingThumbnailCount++;
                 }
@@ -274,6 +275,7 @@ class DesignStudioCanvasViewsService extends Service
                 $thumbnailUrl = $thumbnailBasePath . $thumbnailKey . '?' . $tokenQuery;
                 $designStudioBoardFrameView->thumbnailUrl = $thumbnailUrl;
                 $designStudioBoardFrameView->thumbnailSmallUrl = $thumbnailUrl . '&size=' . DesignStudioThumbnail::SIZE_SMALL;
+                $designStudioBoardFrameView->thumbnailPreviewUrl = $thumbnailUrl . '&size=' . DesignStudioThumbnail::SIZE_PREVIEW;
                 $designStudioBoardFrameView->pageHeight = $designStudioThumbnail->height;
             }
             $designStudioBoardView->frames->add($designStudioBoardFrameView);

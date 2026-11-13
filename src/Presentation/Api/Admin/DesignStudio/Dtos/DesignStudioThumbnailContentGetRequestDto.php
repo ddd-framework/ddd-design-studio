@@ -27,6 +27,6 @@ class DesignStudioThumbnailContentGetRequestDto extends RequestDto
 
     /** @var string|null full (default) or small (far zoom) */
     #[Parameter(in: Parameter::QUERY, required: false)]
-    #[Choice(choices: [DesignStudioThumbnail::SIZE_FULL, DesignStudioThumbnail::SIZE_SMALL])]
+    #[Choice(choices: [DesignStudioThumbnail::SIZE_FULL, DesignStudioThumbnail::SIZE_SMALL, DesignStudioThumbnail::SIZE_PREVIEW])]
     public ?string $size = null;
 }

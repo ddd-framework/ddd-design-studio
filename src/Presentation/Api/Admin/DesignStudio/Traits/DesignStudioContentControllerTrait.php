@@ -126,7 +126,8 @@ trait DesignStudioContentControllerTrait
     }
 
     /**
-     * A rendered thumbnail (size=small: the reduced copy for far zoom levels).
+     * A rendered thumbnail (size=small: the reduced copy for far zoom levels; size=preview: the canvas copy, WebP or
+     * JPEG).
      * @param DesignStudioThumbnailContentGetRequestDto $requestDto
      * @param DesignBoardContentService $designBoardContentService
      * @param DesignStudioThumbnailsService $designStudioThumbnailsService
@@ -144,13 +145,14 @@ trait DesignStudioContentControllerTrait
         DesignStudioThumbnailsService $designStudioThumbnailsService
     ): ImageResponseDto {
         $designBoardContentService->authenticateContentToken($requestDto->token);
-        $png = $designStudioThumbnailsService->getThumbnailContent($requestDto->thumbnailKey, $requestDto->size ?? DesignStudioThumbnail::SIZE_FULL);
-        if ($png === null) {
+        $image = $designStudioThumbnailsService->getThumbnailContent($requestDto->thumbnailKey, $requestDto->size ?? DesignStudioThumbnail::SIZE_FULL);
+        if ($image === null) {
             throw new NotFoundException('Design content not found');
         }
-        $response = new ImageResponseDto($png, 200, [], 'image/png');
+        $mediaType = (getimagesizefromstring($image) ?: [])['mime'] ?? 'image/png';
+        $response = new ImageResponseDto($image, 200, [], in_array($mediaType, ['image/png', 'image/webp', 'image/jpeg'], true) ? $mediaType : 'image/png');
         $response->headers->set('Content-Security-Policy', "default-src 'none'; sandbox");
-        $this->setDesignStudioContentHeaders($response, sha1($png), true);
+        $this->setDesignStudioContentHeaders($response, sha1($image), true);
         return $response;
     }
 

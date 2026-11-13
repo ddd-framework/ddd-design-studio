@@ -24,11 +24,17 @@ export interface ScreenSize {
   height: number;
 }
 
-/** Image a board shows: the ~120 px thumbnail at far zoom, the board-width thumbnail otherwise. */
-export type BoardThumbnailVariant = 'small' | 'default';
+/**
+ * Image a board shows: the ~120 px thumbnail at far zoom, the 640 px preview (WebP / JPEG) at middle zoom, the full
+ * PNG only when the board is drawn wider than the preview can serve sharply.
+ */
+export type BoardThumbnailVariant = 'small' | 'preview' | 'default';
 
 /** Rendered width (screen px) up to which the small thumbnail is enough (it is 120 px wide). */
 export const SMALL_THUMBNAIL_MAX_RENDERED_WIDTH = 130;
+
+/** Rendered width (screen px) up to which the preview is enough (it is at most 640 px wide). */
+export const PREVIEW_THUMBNAIL_MAX_RENDERED_WIDTH = 800;
 
 /** A board shows live HTML only when it is rendered at least this share of its native width. */
 export const LIVE_MIN_RENDERED_WIDTH_RATIO = 0.6;
@@ -42,8 +48,24 @@ export const LIVE_MIN_RENDERED_WIDTH_RATIO_WITHOUT_THUMBNAILS = 0.35;
 /** At most this many live iframes at once (the ones nearest the viewport centre). */
 export const MAX_LIVE_BOARDS = 6;
 
-export const thumbnailVariantForZoom = (zoom: number, boardWidth: number): BoardThumbnailVariant =>
-  boardWidth * zoom <= SMALL_THUMBNAIL_MAX_RENDERED_WIDTH ? 'small' : 'default';
+export const thumbnailVariantForZoom = (zoom: number, boardWidth: number): BoardThumbnailVariant => {
+  const renderedWidth = boardWidth * zoom;
+  if (renderedWidth <= SMALL_THUMBNAIL_MAX_RENDERED_WIDTH) return 'small';
+  return renderedWidth <= PREVIEW_THUMBNAIL_MAX_RENDERED_WIDTH ? 'preview' : 'default';
+};
+
+/**
+ * The URL a board (or a device frame) shows for a variant, falling back to the next larger one that exists: small →
+ * preview → full.
+ */
+export const thumbnailUrlForVariant = (
+  urls: { thumbnailUrl?: string | null; thumbnailPreviewUrl?: string | null; thumbnailSmallUrl?: string | null },
+  variant: BoardThumbnailVariant
+): string | null => {
+  if (variant === 'small') return urls.thumbnailSmallUrl ?? urls.thumbnailPreviewUrl ?? urls.thumbnailUrl ?? null;
+  if (variant === 'preview') return urls.thumbnailPreviewUrl ?? urls.thumbnailUrl ?? null;
+  return urls.thumbnailUrl ?? null;
+};
 
 export const isZoomLiveCapable = (zoom: number, minRatio: number = LIVE_MIN_RENDERED_WIDTH_RATIO): boolean =>
   zoom >= minRatio;

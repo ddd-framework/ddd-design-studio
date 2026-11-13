@@ -52,7 +52,8 @@ hash, written once, shared by every thread on that version) and rendered thumbna
 - `mgamadeus/ddd` ^3.15.3 and `mgamadeus/ddd-argus` ^1.3.3 (installed as dependencies)
 - A named store of the framework's object storage for snapshots and thumbnails (optional; see
   [Object storage](#7-object-storage))
-- Imagick (optional): only for the reduced copy of a thumbnail; without it the full picture is delivered instead
+- Imagick (optional): only for the reduced copies of a thumbnail (120 px PNG, 640 px WebP / JPEG preview); without it
+  the full picture is delivered instead
 - For thumbnails: a renderer HTTP service and a Messenger worker (optional)
 
 ## Installation
@@ -352,7 +353,9 @@ column of 32 characters.
 | `prefix` | key prefix inside the store | `design-studio` |
 
 Object keys: `<prefix>/snapshots/<contentHash>.html`, `<prefix>/thumbnails/<thumbnailKey>.png` and
-`<prefix>/thumbnails/<thumbnailKey>-w120.png`.
+`<prefix>/thumbnails/<thumbnailKey>-w120.png`, and a preview for middle zoom levels, at most 640 px wide, as
+`<prefix>/thumbnails/<thumbnailKey>-w640.webp` (`.jpg` where Imagick has no WebP). The canvas loads the full PNG only
+when a board is drawn wider than 800 px; a thumbnail stored before previews existed gets its preview on first request.
 
 ### `renderer.php` — `DesignStudio.renderer`
 
@@ -501,7 +504,7 @@ Comments written through the API have the author kind `USER`. A comment text has
 | Verb | Path | Purpose |
 |---|---|---|
 | GET | `/boards/{projectKey}/{canvasKey}/{boardKey}` | the board HTML for the sandboxed iframe; query `token` (required), `contentHash`, `theme` |
-| GET | `/thumbnails/{thumbnailKey}` | a thumbnail PNG; query `token` (required), `size` (`full` or `small`) |
+| GET | `/thumbnails/{thumbnailKey}` | a thumbnail; query `token` (required), `size` (`full` PNG, `small` PNG, `preview` WebP / JPEG) |
 | GET | `/assets/{projectKey}/{canvasKey}/{assetPath}` | an image of the canvas' `assets/` folder; query `token` (required), `v` (the file's blob hash: the checkout's file when it matches, else the copy kept with a commented version) |
 
 The board HTML query also takes `assetsHash` (set in `htmlUrl`). The canvas view carries ready-made URLs for both (`htmlUrl`, `thumbnailUrl`, `thumbnailSmallUrl`), including the token.

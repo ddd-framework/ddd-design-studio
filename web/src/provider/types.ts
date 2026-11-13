@@ -315,6 +315,8 @@ export interface DesignStudioTexts {
   themeWithoutDarkMode: string;
   /** Shown on a board card that has no thumbnail yet. */
   thumbnailMissing: string;
+  /** Shown on a board card while its picture loads. */
+  thumbnailLoading: string;
   /** Placeholder of the note field in the focus view's reference panel. */
   referenceNotePlaceholder: string;
   /** Toast of a code link (`?code=`) or a pasted code that names no board (`code` = what was given). */

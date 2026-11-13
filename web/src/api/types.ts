@@ -139,6 +139,8 @@ export interface DesignStudioBoardView {
   thumbnailUrl?: string | null;
   /** URL of the reduced thumbnail for far zoom levels, null when there is none (yet) */
   thumbnailSmallUrl?: string | null;
+  /** URL of the 640 px preview (WebP / JPEG) for middle zoom levels, null when there is no thumbnail (yet) */
+  thumbnailPreviewUrl?: string | null;
   /** The layout adapts to the viewport width: the board is shown in device frames */
   isResponsive?: boolean;
   /** Device frames of a responsive board, side by side (width / height of the board = their extent); null for a fixed board */
@@ -162,6 +164,8 @@ export interface DesignStudioBoardFrameView {
   thumbnailUrl?: string | null;
   /** Reduced thumbnail, null until rendered */
   thumbnailSmallUrl?: string | null;
+  /** 640 px preview (WebP / JPEG) for the canvas, null until rendered */
+  thumbnailPreviewUrl?: string | null;
   objectType?: string | null;
 }
 

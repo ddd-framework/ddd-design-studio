@@ -13,8 +13,9 @@ import { boardCodeOf } from './boardKey';
 import { BOARD_HEADER_HEIGHT, MAX_BOARD_CANVAS_HEIGHT } from './canvasLayout';
 import { withoutContentToken } from './canvasLiveUpdate';
 import { useCanvasView } from './canvasView';
-import { useCheckedContentUrl, useImageRetry, wasContentUrlLoaded } from './useCheckedContentUrl';
+import { useCheckedContentUrl, wasContentUrlLoaded } from './useCheckedContentUrl';
 import { useDeferredMount } from './useDeferredMount';
+import { CanvasThumbnail } from './CanvasThumbnail';
 import {
   FRAME_GAP,
   FRAME_LABEL_HEIGHT,
@@ -95,25 +96,18 @@ const BoardNodeComponent = ({ id, data }: NodeProps<BoardFlowNode>) => {
   const isReady = useDeferredMount();
   // no thumbnail in the shown look (yet): nothing to draw until the board is live
   const isThumbnailMissing = !isResponsive && !board.thumbnailUrl;
-  const latestThumbnailUrl = designContentUrl(
-    apiBaseUrl,
-    thumbnailVariant === 'small' ? (board.thumbnailSmallUrl ?? board.thumbnailUrl) : board.thumbnailUrl
-  );
   const latestHtmlUrl = designContentUrl(apiBaseUrl, board.htmlUrl);
   // Same content → same URL for the page's lifetime (a rotated content token never reloads an image / iframe, a
   // remount gets the URL the browser cache holds); only a new version or another theme changes the src.
-  const [loadedImageUrl, setLoadedImageUrl] = useState<string | null>(null);
   const [loadedFrameUrl, setLoadedFrameUrl] = useState<string | null>(null);
-  const thumbnailUrl = useStableContentUrl(latestThumbnailUrl, isSameContent(loadedImageUrl, latestThumbnailUrl));
   const htmlUrl = useStableContentUrl(latestHtmlUrl, isSameContent(loadedFrameUrl, latestHtmlUrl));
   // A board already seen live in this look never falls back to the empty card while it has no thumbnail: it remounts
   // its HTML at once (browser cache, bounded LRU) instead of waiting for the live set.
   const isRememberedLive =
-    isThumbnailMissing && thumbnailVariant === 'default' && isReady && wasContentUrlLoaded(htmlUrl);
+    isThumbnailMissing && thumbnailVariant !== 'small' && isReady && wasContentUrlLoaded(htmlUrl);
   const showsLiveHtml = isLive || isRememberedLive;
   // the iframe mounts only after its HTML answered 2xx (never an error body over the thumbnail); retried while live
   const liveHtmlUrl = useCheckedContentUrl(showsLiveHtml && isReady ? htmlUrl : undefined);
-  const thumbnailRetry = useImageRetry(thumbnailUrl);
   useEffect(() => {
     if (!liveHtmlUrl) setLoadedFrameUrl(null);
   }, [liveHtmlUrl]);
@@ -245,23 +239,13 @@ const BoardNodeComponent = ({ id, data }: NodeProps<BoardFlowNode>) => {
             title={title}
           />
         )}
-        {!isResponsive && thumbnailUrl && (
-          // biome-ignore lint/performance/noImgElement: canvas thumbnails are API images at canvas scale, next/image cannot optimise them
-          <img
-            key={thumbnailRetry.imageKey}
-            src={thumbnailUrl}
-            alt=""
-            width={width}
-            height={height}
-            loading="lazy"
-            decoding="async"
-            draggable={false}
-            onError={thumbnailRetry.onError}
-            onLoad={() => setLoadedImageUrl(thumbnailUrl)}
-            className={cx(
-              'pointer-events-none absolute inset-0 h-full w-full object-cover object-top select-none',
-              thumbnailRetry.isFailed && 'invisible'
-            )}
+        {!isResponsive && !isThumbnailMissing && (
+          <CanvasThumbnail
+            urls={board}
+            variant={thumbnailVariant}
+            title={title}
+            imageClassName="absolute inset-0 h-full w-full object-cover object-top"
+            isCompact={isCompact}
           />
         )}
         {isThumbnailMissing && !isCompact && !(showsLiveHtml && liveHtmlUrl) && (
@@ -381,17 +365,13 @@ const ResponsiveBoardFrame = ({
   htmlUrl,
   title,
 }: ResponsiveBoardFrameProps) => {
-  const { apiBaseUrl } = useDesignStudio();
   const texts = useDesignStudioTexts();
   const frameWidth = frame.width ?? 0;
   const frameHeight = frameCanvasHeight(frame, frameHeightMode);
-  const latestThumbnailUrl = designContentUrl(
-    apiBaseUrl,
-    thumbnailVariant === 'small' ? (frame.thumbnailSmallUrl ?? frame.thumbnailUrl) : frame.thumbnailUrl
+  // each frame picks its own variant: a phone frame is drawn far narrower than the desktop frame beside it
+  const frameThumbnailVariant = useStore(state =>
+    thumbnailVariant === 'small' ? 'small' : thumbnailVariantForZoom(state.transform[2], frameWidth)
   );
-  const [loadedImageUrl, setLoadedImageUrl] = useState<string | null>(null);
-  const thumbnailUrl = useStableContentUrl(latestThumbnailUrl, isSameContent(loadedImageUrl, latestThumbnailUrl));
-  const thumbnailRetry = useImageRetry(thumbnailUrl);
   const liveHtmlUrl = useCheckedContentUrl(showsLiveHtml ? htmlUrl : undefined);
   const isCut = frameHeightMode === 'page' && (frame.pageHeight ?? 0) > frameHeight;
   return (
@@ -407,21 +387,13 @@ const ResponsiveBoardFrame = ({
         className="relative overflow-hidden rounded-[20px] bg-card shadow-surface-raised ring-1 ring-foreground/10"
         style={{ width: frameWidth, height: frameHeight }}
       >
-        {thumbnailUrl && (
-          // biome-ignore lint/performance/noImgElement: canvas thumbnails are API images at canvas scale
-          <img
-            key={thumbnailRetry.imageKey}
-            src={thumbnailUrl}
-            alt=""
-            loading="lazy"
-            decoding="async"
-            draggable={false}
-            onError={thumbnailRetry.onError}
-            onLoad={() => setLoadedImageUrl(thumbnailUrl)}
-            className={cx(
-              'pointer-events-none absolute inset-x-0 top-0 w-full select-none',
-              thumbnailRetry.isFailed && 'invisible'
-            )}
+        {frame.thumbnailUrl && (
+          <CanvasThumbnail
+            urls={frame}
+            variant={frameThumbnailVariant}
+            title={`${title} · ${deviceLabel}`}
+            imageClassName="absolute inset-x-0 top-0 w-full"
+            isCompact={thumbnailVariant === 'small'}
           />
         )}
         {!frame.thumbnailUrl && !(showsLiveHtml && liveHtmlUrl) && thumbnailVariant !== 'small' && (

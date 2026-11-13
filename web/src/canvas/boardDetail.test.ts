@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { type BoardRect, MAX_LIVE_BOARDS, selectLiveBoardIds, thumbnailVariantForZoom } from './boardDetail.ts';
+import {
+  type BoardRect,
+  MAX_LIVE_BOARDS,
+  selectLiveBoardIds,
+  thumbnailUrlForVariant,
+  thumbnailVariantForZoom,
+} from './boardDetail.ts';
 
 const board = (id: string, column: number, row = 0): BoardRect => ({
   id,
@@ -15,7 +21,15 @@ describe('thumbnailVariantForZoom', () => {
   it('uses the small thumbnail at far zoom and the board-width one when larger', () => {
     assert.equal(thumbnailVariantForZoom(0.1, 390), 'small');
     assert.equal(thumbnailVariantForZoom(0.33, 390), 'small');
-    assert.equal(thumbnailVariantForZoom(0.4, 390), 'default');
+    assert.equal(thumbnailVariantForZoom(0.4, 390), 'preview');
+    assert.equal(thumbnailVariantForZoom(0.5, 1440), 'preview', 'a desktop page at 720 px on screen: the preview');
+    assert.equal(thumbnailVariantForZoom(0.6, 1440), 'default');
+    assert.equal(
+      thumbnailUrlForVariant({ thumbnailUrl: 'full', thumbnailPreviewUrl: null, thumbnailSmallUrl: null }, 'preview'),
+      'full',
+      'a thumbnail without a preview URL shows the full picture'
+    );
+    assert.equal(thumbnailUrlForVariant({ thumbnailUrl: 'full', thumbnailPreviewUrl: 'preview' }, 'small'), 'preview');
   });
 });
 

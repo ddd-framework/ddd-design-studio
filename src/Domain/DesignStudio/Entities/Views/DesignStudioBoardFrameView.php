@@ -32,6 +32,9 @@ class DesignStudioBoardFrameView extends ValueObject
     /** @var string|null Reduced thumbnail, null until rendered */
     public ?string $thumbnailSmallUrl = null;
 
+    /** @var string|null Preview copy for the canvas (640 px wide, WebP / JPEG), null until rendered */
+    public ?string $thumbnailPreviewUrl = null;
+
     public function uniqueKey(): string
     {
         return static::uniqueKeyStatic((string)$this->deviceKey);

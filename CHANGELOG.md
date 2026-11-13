@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.1
+
+- **Canvas previews.** Each thumbnail gets a preview copy, at most 640 px wide, WebP (JPEG where Imagick has no WebP),
+  stored next to it under the same key (`<key>-w640.webp`) when the thumbnail is stored; older thumbnails get it on
+  their first request. The canvas shows the 120 px copy far out, the preview at middle zoom, and the full PNG only when
+  a board (or a device frame) is drawn wider than 800 px. A 1440 × 7000 page is a few hundred kilobytes instead of
+  megabytes. Route `GET …/thumbnails/{key}?size=preview`; the canvas view carries `thumbnailPreviewUrl` on boards and
+  frames.
+- **Loading.** A board card shows its title and "Loading…" (text `thumbnailLoading`) on a light surface until its
+  first picture arrives, and the picture shown last stays until the next zoom level's picture has loaded.
+
 ## 0.4.0
 
 **Responsive boards.** A board whose layout adapts to the viewport width is shown in device frames.

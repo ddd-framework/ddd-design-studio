@@ -248,6 +248,7 @@ class DesignStudioThumbnailsService extends EntitiesService
         $designStudioThumbnail->rendererVersion = $this->getRendererVersion();
         $designStudioThumbnail->objectKey = $objectKey;
         $designStudioThumbnail->smallObjectKey = $designStudioFilesService->storeSmallThumbnail($thumbnailKey, $png);
+        $designStudioFilesService->storePreviewThumbnail($thumbnailKey, $png);
         $designStudioThumbnail->width = $imageSize[0];
         $designStudioThumbnail->height = $imageSize[1];
         $designStudioThumbnail->byteSize = strlen($png);
@@ -256,8 +257,9 @@ class DesignStudioThumbnailsService extends EntitiesService
 
     /**
      * @param string $thumbnailKey
-     * @param string $size DesignStudioThumbnail::SIZE_*
-     * @return string|null PNG bytes, null when there is no such thumbnail
+     * @param string $size DesignStudioThumbnail::SIZE_*; SIZE_PREVIEW of a thumbnail stored before previews existed is
+     *                     made from the full picture now (and kept)
+     * @return string|null image bytes (PNG; the preview WebP or JPEG), null when there is no such thumbnail
      * @throws BadRequestException
      * @throws InternalErrorException
      * @throws InvalidArgumentException
@@ -269,11 +271,27 @@ class DesignStudioThumbnailsService extends EntitiesService
         if (!$designStudioThumbnail) {
             return null;
         }
+        /** @var DesignStudioFilesService $designStudioFilesService */
+        $designStudioFilesService = DDDService::instance()->getService(DesignStudioFilesService::class);
+        if ($size === DesignStudioThumbnail::SIZE_PREVIEW) {
+            $preview = $designStudioFilesService->readPreviewThumbnail($thumbnailKey);
+            if ($preview !== null) {
+                return $preview;
+            }
+            $png = $designStudioFilesService->readThumbnail((string)$designStudioThumbnail->objectKey);
+            if ($png === null) {
+                return null;
+            }
+            try {
+                return $designStudioFilesService->storePreviewThumbnail($thumbnailKey, $png) ?? $png;
+            } catch (ImagickException) {
+                // an image the library cannot read: the full picture still shows
+                return $png;
+            }
+        }
         $objectKey = $size === DesignStudioThumbnail::SIZE_SMALL
             ? ($designStudioThumbnail->smallObjectKey ?? $designStudioThumbnail->objectKey)
             : $designStudioThumbnail->objectKey;
-        /** @var DesignStudioFilesService $designStudioFilesService */
-        $designStudioFilesService = DDDService::instance()->getService(DesignStudioFilesService::class);
         return $designStudioFilesService->readThumbnail((string)$objectKey);
     }
 }

@@ -152,6 +152,7 @@ Inside the package, components read it with `useDesignStudio()` or the narrower 
 | `thumbnailsLastError(error)` | `Last error: <error>` |
 | `themeWithoutDarkMode` | `This theme has no dark mode` |
 | `thumbnailMissing` | `No thumbnail yet` |
+| `thumbnailLoading` | `Loading…` |
 | `referenceNotePlaceholder` | `What should change? (optional, goes into the reference)` |
 | `boardCodeNotFound(code)` | `No board has the code <code>` |
 | `boardLinkCopied(code)` | `Link to <code> copied` |

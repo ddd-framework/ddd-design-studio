@@ -33,6 +33,12 @@ class DesignStudioFilesService extends Service
     /** @var int Width in pixels of the reduced copy of a thumbnail */
     public const int SMALL_THUMBNAIL_WIDTH = 120;
 
+    /** @var int Width of the preview copy of a thumbnail (canvas zoom levels below the full picture), in pixels */
+    public const int PREVIEW_THUMBNAIL_WIDTH = 640;
+
+    /** @var int Quality of the preview copy (WebP, else JPEG) */
+    public const int PREVIEW_THUMBNAIL_QUALITY = 78;
+
     /**
      * Keeps the content of a board version.
      * @param string $contentHash content hash of the board file (git blob hash)
@@ -217,6 +223,72 @@ class DesignStudioFilesService extends Service
         $objectKey = $this->getKeyPrefix() . '/thumbnails/' . $thumbnailKey . '-w' . static::SMALL_THUMBNAIL_WIDTH . '.png';
         $objectStorage->putObject($objectKey, $smallPng, 'image/png');
         return $objectKey;
+    }
+
+    /**
+     * Keeps a preview copy of a thumbnail for the canvas: at most PREVIEW_THUMBNAIL_WIDTH wide (same aspect ratio),
+     * WebP (JPEG on white when the image library has no WebP). A long page that weighs megabytes as PNG is a few
+     * hundred kilobytes here. Found by its thumbnail key (readPreviewThumbnail()); no column holds its object key.
+     * @param string $thumbnailKey SHA-256 that identifies the thumbnail
+     * @param string $png PNG bytes of the full thumbnail
+     * @return string|null the preview's bytes, null when no store is configured or the image library (Imagick) is missing
+     * @throws InternalErrorException when the store fails
+     * @throws ImagickException
+     */
+    public function storePreviewThumbnail(string $thumbnailKey, string $png): ?string
+    {
+        $objectStorage = $this->getObjectStorage();
+        if ($objectStorage === null || !preg_match('/^[0-9a-f]{64}$/', $thumbnailKey) || !class_exists(Imagick::class)) {
+            return null;
+        }
+        $isWebpAvailable = Imagick::queryFormats('WEBP') !== [];
+        $imagick = new Imagick();
+        $imagick->readImageBlob($png);
+        if ($imagick->getImageWidth() > static::PREVIEW_THUMBNAIL_WIDTH) {
+            $imagick->thumbnailImage(static::PREVIEW_THUMBNAIL_WIDTH, 0);
+        }
+        $imagick->stripImage();
+        if (!$isWebpAvailable) {
+            $imagick->setImageBackgroundColor('white');
+            $imagick = $imagick->mergeImageLayers(Imagick::LAYERMETHOD_FLATTEN);
+        }
+        $imagick->setImageFormat($isWebpAvailable ? 'webp' : 'jpeg');
+        $imagick->setImageCompressionQuality(static::PREVIEW_THUMBNAIL_QUALITY);
+        $preview = $imagick->getImageBlob();
+        $imagick->clear();
+        $objectKey = $this->getPreviewThumbnailObjectKey($thumbnailKey, $isWebpAvailable ? 'webp' : 'jpg');
+        $objectStorage->putObject($objectKey, $preview, $isWebpAvailable ? 'image/webp' : 'image/jpeg');
+        return $preview;
+    }
+
+    /**
+     * @param string $thumbnailKey
+     * @return string|null the preview copy's bytes (WebP or JPEG), null when there is none (yet)
+     * @throws InternalErrorException when the store fails
+     */
+    public function readPreviewThumbnail(string $thumbnailKey): ?string
+    {
+        $objectStorage = $this->getObjectStorage();
+        if ($objectStorage === null || !preg_match('/^[0-9a-f]{64}$/', $thumbnailKey)) {
+            return null;
+        }
+        foreach (['webp', 'jpg'] as $extension) {
+            $preview = $objectStorage->getObjectContent($this->getPreviewThumbnailObjectKey($thumbnailKey, $extension));
+            if ($preview !== null) {
+                return $preview;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * @param string $thumbnailKey
+     * @param string $extension `webp` or `jpg`
+     * @return string
+     */
+    public function getPreviewThumbnailObjectKey(string $thumbnailKey, string $extension): string
+    {
+        return $this->getKeyPrefix() . '/thumbnails/' . $thumbnailKey . '-w' . static::PREVIEW_THUMBNAIL_WIDTH . '.' . $extension;
     }
 
     /**

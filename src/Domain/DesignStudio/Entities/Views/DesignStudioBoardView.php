@@ -60,6 +60,9 @@ class DesignStudioBoardView extends ValueObject
     /** @var string|null URL of the reduced thumbnail for far zoom levels, null when there is none (yet) */
     public ?string $thumbnailSmallUrl = null;
 
+    /** @var string|null URL of the preview copy for the canvas (640 px wide, WebP / JPEG), null when there is no thumbnail */
+    public ?string $thumbnailPreviewUrl = null;
+
     /** @var bool The layout adapts to the viewport width: the board is shown in device frames */
     public bool $isResponsive = false;
 
