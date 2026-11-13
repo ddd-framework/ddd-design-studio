@@ -370,6 +370,7 @@ class DesignDirectoryReaderService extends Service
             $designDirectoryBoard->height = (int)($boardDescription['h'] ?? static::DEFAULT_BOARD_HEIGHT);
             $designDirectoryBoard->contentHash = $contentHash;
             $designDirectoryBoard->byteSize = $byteSize;
+            $designDirectoryBoard->runsScripts = $canvasDefinition->runsBoardScripts;
             $designDirectoryBoard->isResponsive = (bool)($boardDescription['responsive'] ?? $canvasDescription['responsive'] ?? false)
                 || $isMarkedResponsiveInFile;
             if ($designDirectoryBoard->isResponsive) {

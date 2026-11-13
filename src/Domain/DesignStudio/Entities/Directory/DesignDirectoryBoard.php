@@ -57,6 +57,9 @@ class DesignDirectoryBoard extends ValueObject
      */
     public bool $isResponsive = false;
 
+    /** @var bool The board's own scripts run (its canvas opted in, DesignCanvasDefinition::$runsBoardScripts) */
+    public bool $runsScripts = false;
+
     /** @var string[] Keys of the devices a responsive board shows as frames on the canvas; empty for a fixed board */
     public array $frameDeviceKeys = [];
 

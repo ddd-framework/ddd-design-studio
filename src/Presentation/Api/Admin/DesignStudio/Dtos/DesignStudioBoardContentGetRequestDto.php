@@ -50,6 +50,13 @@ class DesignStudioBoardContentGetRequestDto extends RequestDto
     #[Parameter(in: Parameter::QUERY, required: false)]
     public ?bool $site = null;
 
+    /**
+     * @var bool|null Set by the canvas view on a board whose scripts run, so a cached copy of the URL never mixes the
+     *      delivery with and without them; whether the scripts are kept follows the canvas configuration alone
+     */
+    #[Parameter(in: Parameter::QUERY, required: false)]
+    public ?bool $scripts = null;
+
     /** @var string|null Theme reference `<themeId>[:<mode>]`; omitted = no theme */
     #[Parameter(in: Parameter::QUERY, required: false)]
     #[Length(max: 255)]

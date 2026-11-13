@@ -28,7 +28,7 @@ use DDD\Infrastructure\Services\Service;
  */
 class DesignBoardAssetsService extends Service
 {
-    /** @var string[] Media type per file extension (lower case); other extensions are no assets */
+    /** @var string[] Media type per file extension (lower case): images and script files; other extensions are no assets */
     public const array ASSET_MEDIA_TYPES = [
         'webp' => 'image/webp',
         'png' => 'image/png',
@@ -37,6 +37,8 @@ class DesignBoardAssetsService extends Service
         'gif' => 'image/gif',
         'avif' => 'image/avif',
         'svg' => 'image/svg+xml',
+        // a script file runs only on a canvas with board scripts (DesignCanvasDefinition::$runsBoardScripts)
+        'js' => 'text/javascript',
     ];
 
     /** @var int Longest asset path below `assets/` */
@@ -58,7 +60,7 @@ class DesignBoardAssetsService extends Service
     /**
      * @param string $assetPath path below `assets/`
      * @return bool true for a path of plain segments (letters, digits, `.`, `_`, `-`; none starting with a dot, so no
-     *              `..` and no dotfile) with an image extension of ASSET_MEDIA_TYPES
+     *              `..` and no dotfile) with an extension of ASSET_MEDIA_TYPES
      */
     public static function isValidAssetPath(string $assetPath): bool
     {

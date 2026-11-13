@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.0
+
+- **Board scripts:** a canvas with `'scripts' => true` in `DesignStudio.projects` keeps its boards' inline `<script>`
+  elements and script files of its `assets/` folder (`assets/*.js`, a new asset type). They run in canvas tiles,
+  device frames, the focus view, present mode and the site view, next to the site navigation script. The CSP admits
+  `'unsafe-inline'` and the canvas' asset path only (`connect-src 'none'`, `form-action 'none'`); the iframe is
+  `sandbox="allow-scripts"`, never `allow-same-origin`. Default `false`: every other canvas is unchanged.
+- **Thumbnails after the scripts:** the renderer gets `"scripts": true` for such boards; renderer 1.1.0 runs them and
+  takes the picture 300 ms after the load (an older renderer shows the state before them). Their thumbnails have keys
+  of their own.
+- Board view: `runsScripts`; board route: query `scripts` (part of the URL only).
+
 ## 0.5.2
 
 - **Focus view and present mode run a responsive board as on the device:** the iframe is one screen (device width ×

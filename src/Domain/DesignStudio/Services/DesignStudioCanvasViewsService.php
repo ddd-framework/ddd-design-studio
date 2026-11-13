@@ -171,6 +171,7 @@ class DesignStudioCanvasViewsService extends Service
                 && $designStudioBoardStatus->contentHash !== $designDirectoryBoard->contentHash;
             $designStudioBoardView->openThreadCount = $openThreadCounts[$boardKey] ?? 0;
             $designStudioBoardView->route = $designDirectoryBoard->route;
+            $designStudioBoardView->runsScripts = $designDirectoryBoard->runsScripts;
             if ($designDirectoryBoard->isResponsive && $designDirectoryBoard->contentHash !== null) {
                 $this->addFrameViews(
                     $designStudioBoardView,
@@ -194,11 +195,15 @@ class DesignStudioCanvasViewsService extends Service
                 $designStudioBoardView->htmlUrl = $boardBasePath . rawurlencode($boardKey) . '?' . $tokenQuery
                     . '&contentHash=' . $designDirectoryBoard->contentHash
                     . ($designDirectoryBoard->assetsHash !== null ? '&assetsHash=' . $designDirectoryBoard->assetsHash : '')
+                    // a cached copy never mixes the delivery with and without the board's scripts
+                    . ($designDirectoryBoard->runsScripts ? '&scripts=1' : '')
                     . $themeQuery;
                 $thumbnailKey = $designStudioThumbnailsService->computeThumbnailKey(
                     $designDirectoryBoard->contentHash,
                     $themeHash,
-                    $designDirectoryBoard->assetsHash
+                    $designDirectoryBoard->assetsHash,
+                    null,
+                    $designDirectoryBoard->runsScripts
                 );
                 // a responsive board has its pictures per frame (addFrameViews())
                 $designStudioThumbnail = $designDirectoryBoard->isResponsive ? null : $designStudioThumbnails?->getByThumbnailKey($thumbnailKey);
@@ -268,7 +273,8 @@ class DesignStudioCanvasViewsService extends Service
                 (string)$designDirectoryBoard->contentHash,
                 $themeHash,
                 $designDirectoryBoard->assetsHash,
-                $designDevice->width
+                $designDevice->width,
+                $designDirectoryBoard->runsScripts
             );
             $designStudioThumbnail = $designStudioThumbnails?->getByThumbnailKey($thumbnailKey);
             if ($designStudioThumbnail) {

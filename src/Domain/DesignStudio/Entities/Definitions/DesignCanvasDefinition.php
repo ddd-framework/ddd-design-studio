@@ -40,6 +40,13 @@ class DesignCanvasDefinition extends ValueObject
     public ?string $code = null;
 
     /**
+     * @var bool The canvas' boards keep their own scripts (`'scripts' => true` in DesignStudio.projects): inline
+     *      `<script>` elements and script files of the canvas' `assets/` folder run in the sandboxed board; false = every
+     *      `<script>` is removed on delivery
+     */
+    public bool $runsBoardScripts = false;
+
+    /**
      * @return string|null what every board code of the canvas starts with: `APP ONB`, `ONB` without a project code,
      *                     null when the canvas has no code
      */

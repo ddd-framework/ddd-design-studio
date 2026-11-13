@@ -57,8 +57,8 @@ const HEADER_ICON_BUTTON_CLASS =
  * One board on the canvas: a header line (title with ellipsis — the full title on hover —,
  * status, open comments, "expand" = focus view, "download" PNG / HTML) above the board. Far out the board shows the
  * ~120 px thumbnail, closer the board-width thumbnail; when the canvas marks it live (large on screen, inside the
- * viewport, one of the nearest six) the sandboxed board HTML is mounted on top — `sandbox=""`: no scripts, no same
- * origin, no forms, no navigation. A board without a thumbnail in the shown look (not rendered yet) is a neutral
+ * viewport, one of the nearest six) the sandboxed board HTML is mounted on top — `sandbox=""`: no scripts (a canvas
+ * with board scripts: `allow-scripts`, boardSandbox()), no same origin, no forms, no navigation. A board without a thumbnail in the shown look (not rendered yet) is a neutral
  * card until it is live. Only nodes in the viewport are mounted (`onlyRenderVisibleElements`).
  */
 const BoardNodeComponent = ({ id, data }: NodeProps<BoardFlowNode>) => {
@@ -236,6 +236,7 @@ const BoardNodeComponent = ({ id, data }: NodeProps<BoardFlowNode>) => {
             thumbnailVariant={thumbnailVariant}
             showsLiveHtml={showsLiveHtml && isReady}
             htmlUrl={htmlUrl}
+            runsScripts={board.runsScripts === true}
             title={title}
           />
         )}
@@ -258,7 +259,7 @@ const BoardNodeComponent = ({ id, data }: NodeProps<BoardFlowNode>) => {
             src={liveHtmlUrl}
             onLoad={() => setLoadedFrameUrl(liveHtmlUrl)}
             title={title || 'Board'}
-            sandbox=""
+            sandbox={boardSandbox(board)}
             referrerPolicy="no-referrer"
             loading="lazy"
             width={width}
@@ -296,6 +297,13 @@ const BoardNodeComponent = ({ id, data }: NodeProps<BoardFlowNode>) => {
 
 export const BoardNode = memo(BoardNodeComponent);
 
+/**
+ * The sandbox of a board iframe: no scripts, unless the board's own scripts run (a canvas with board scripts); never
+ * `allow-same-origin`, so a board never reaches the studio page, its storage or its token.
+ */
+export const boardSandbox = (board: DesignStudioBoardView | null | undefined): string =>
+  board?.runsScripts === true ? 'allow-scripts' : '';
+
 interface ResponsiveBoardFramesProps {
   board: DesignStudioBoardView;
   frameHeightMode: FrameHeightMode;
@@ -304,6 +312,8 @@ interface ResponsiveBoardFramesProps {
   /** The board is live: each frame mounts the board HTML at its width. */
   showsLiveHtml: boolean;
   htmlUrl: string | undefined;
+  /** The board's own scripts run in each frame (a canvas with board scripts). */
+  runsScripts: boolean;
   title: string;
 }
 
@@ -318,6 +328,7 @@ const ResponsiveBoardFrames = ({
   thumbnailVariant,
   showsLiveHtml,
   htmlUrl,
+  runsScripts,
   title,
 }: ResponsiveBoardFramesProps) => {
   let left = 0;
@@ -336,6 +347,7 @@ const ResponsiveBoardFrames = ({
             thumbnailVariant={thumbnailVariant}
             showsLiveHtml={showsLiveHtml}
             htmlUrl={htmlUrl}
+            runsScripts={runsScripts}
             title={title}
           />
         );
@@ -352,6 +364,7 @@ interface ResponsiveBoardFrameProps {
   thumbnailVariant: BoardThumbnailVariant;
   showsLiveHtml: boolean;
   htmlUrl: string | undefined;
+  runsScripts: boolean;
   title: string;
 }
 
@@ -363,6 +376,7 @@ const ResponsiveBoardFrame = ({
   thumbnailVariant,
   showsLiveHtml,
   htmlUrl,
+  runsScripts,
   title,
 }: ResponsiveBoardFrameProps) => {
   const texts = useDesignStudioTexts();
@@ -405,7 +419,7 @@ const ResponsiveBoardFrame = ({
           <iframe
             src={liveHtmlUrl}
             title={`${title} · ${deviceLabel}`}
-            sandbox=""
+            sandbox={runsScripts ? 'allow-scripts' : ''}
             referrerPolicy="no-referrer"
             loading="lazy"
             width={frameWidth}

@@ -488,6 +488,8 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
         $renderer->themeStyle = $themeStyle ?? '';
         // a device frame of a responsive board: the whole page at the device's width
         $renderer->fullPage = $designDirectoryBoard->frameDeviceKey !== null;
+        // a canvas with board scripts: the picture after they ran (script files are inlined like images)
+        $renderer->runsScripts = $designDirectoryBoard->runsScripts;
         $renderer->startRender();
         return $renderer;
     }

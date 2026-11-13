@@ -143,6 +143,8 @@ export interface DesignStudioBoardView {
   thumbnailPreviewUrl?: string | null;
   /** The layout adapts to the viewport width: the board is shown in device frames */
   isResponsive?: boolean;
+  /** The board's own scripts run (its canvas runs board scripts): its iframe gets `sandbox="allow-scripts"`, never `allow-same-origin` */
+  runsScripts?: boolean;
   /** Device frames of a responsive board, side by side (width / height of the board = their extent); null for a fixed board */
   frames?: DesignStudioBoardFrameViews | null;
   /** Path of the board's page in the site view (`/`, `/pricing`), null = no page */

@@ -103,6 +103,7 @@ return [
                 'boards' => ['*'],             // file-name patterns of the boards on this canvas
                 'sections' => ['*'],           // key patterns of the notes that are section titles
                 'referenceTheme' => null,      // `<themeId>[:<mode>]` the canvas is designed in, or null
+                'scripts' => false,            // true: the boards' own scripts run (Board scripts)
             ],
         ],
     ],
@@ -314,6 +315,7 @@ A list of projects. Default: `[]`.
 | `canvases[].boards` | `fnmatch` patterns of board file names; empty = every board of `canvas.json` | `[]` |
 | `canvases[].sections` | `fnmatch` patterns of note keys that are section titles; empty = every note whose `kind` starts with `title` | `[]` |
 | `canvases[].referenceTheme` | theme reference used when a request names no theme | `null` |
+| `canvases[].scripts` | `true`: the boards' own scripts run, sandboxed (see Board scripts) | `false` |
 
 An invalid or duplicate key or an unsafe folder makes every read of the configuration fail with a `BadRequestException`.
 
@@ -449,14 +451,45 @@ and device frame of the focus view), with its own URL per page (`…/site/pricin
 - **Links.** A click on `href="/pricing"`, a relative `href="pricing"`, or `href="board:pricing.html"` opens that
   board's page; `href="#faq"` scrolls the page; a link without a page shows "No page for /x"; external links
   (`https:`, `mailto:`, `//…`) are not followed. Forms are not submitted.
-- **How.** The page is the board route with `site=1`: the board's own scripts removed, the studio's navigation
-  script added, admitted by its hash in the CSP (`script-src 'sha256-…'`, `sandbox allow-scripts`, no same origin): it
-  reports clicked links, the scroll position and the page height to the studio page by `postMessage`; inline handlers
-  and `javascript:` URLs stay blocked. The page keeps the device's viewport height and scrolls itself.
+- **How.** The page is the board route with `site=1`: the board's own scripts removed (a canvas with board scripts
+  keeps them), the studio's navigation script added, admitted by its hash in the CSP (`script-src 'sha256-…'`,
+  `sandbox allow-scripts`, no same origin): it reports clicked links, the scroll position and the page height to the
+  studio page by `postMessage`; inline handlers and `javascript:` URLs stay blocked. The page keeps the device's
+  viewport height and scrolls itself.
 - **Comments.** Pins are placed and shown on the page as on the canvas (page positions in the viewport they were
   placed in, the same threads); they move with the page's scroll position.
 - **Routes.** `"route"` in canvas.json or `<meta name="design-route">`, one board per route (a second board with the
   same route loses it, with a warning). `/` is the start page; without it the site opens at the first page.
+
+### Board scripts
+
+A canvas with `'scripts' => true` in `DesignStudio.projects` keeps its boards' own scripts: timed sequences, an
+`IntersectionObserver`, a small state machine for an app tour. Every other canvas is unchanged: its `<script>` elements
+are removed before delivery.
+
+```html
+<script>
+  setInterval(() => document.querySelector('.tour').classList.toggle('step-2'), 1000);
+</script>
+<script src="assets/tour.js"></script>   <!-- a script file of the canvas' assets/ folder -->
+```
+
+- **Where they run.** Canvas tiles and device frames, the focus view and present mode, the site view (next to the
+  navigation script: links, scroll position and height are reported as before), and the thumbnails.
+- **What the CSP allows.** `script-src 'unsafe-inline' <origin><contentBasePath>/assets/<project>/<canvas>/`: inline
+  `<script>` elements (inline handlers and `javascript:` URLs too) and the canvas' own script files, nothing else;
+  `connect-src 'none'`, `form-action 'none'`, `default-src 'none'`, no external host. The iframe and the CSP carry
+  `sandbox allow-scripts`, never `allow-same-origin`: the board runs in an opaque origin without access to the studio
+  page, its cookies, its storage or its token.
+- **Script files.** `assets/<path>.js` is an asset like an image (same path rules, same `assetsHash`: a new version of
+  the file reloads the board and renders its thumbnails anew). Use classic scripts (`<script src>`); a `type="module"`
+  script file is fetched with CORS and refused in the opaque origin (inline module scripts work, imports between files
+  do not).
+- **What does not work.** No network (`fetch`, XHR, WebSocket, external scripts); no storage that survives a reload
+  (`localStorage` and cookies throw or are empty in the opaque origin); no forms; no navigation of the studio page.
+- **Thumbnails.** The studio sends `"scripts": true` to the renderer (the canvas' script files inlined as `data:` URLs);
+  renderer 1.1.0 runs the scripts and takes the picture 300 ms after the load. An older renderer removes them: the
+  thumbnail shows the board before its scripts ran. Thumbnails of a canvas with board scripts have keys of their own.
 
 ### Images: the `assets/` folder
 
@@ -472,7 +505,8 @@ boards is one file in the repository:
 - A reference is `assets/<path>` or `./assets/<path>`, relative to the canvas folder, in a `src`, `href`, `poster` or
   `srcset` attribute or in a CSS `url(…)` (inline style or `<style>`). A browser that opens the board file from disk
   resolves it by itself; the studio rewrites it on delivery (`DesignBoardAssetsService`).
-- File types: `webp`, `png`, `jpg` / `jpeg`, `gif`, `avif`, `svg`. Path segments consist of letters, digits, `.`, `_`
+- File types: `webp`, `png`, `jpg` / `jpeg`, `gif`, `avif`, `svg`, and `js` (runs only on a canvas with board
+  scripts). Path segments consist of letters, digits, `.`, `_`
   and `-`, and none starts with a dot (no `..`, no dotfiles). The file must resolve (symbolic links included) to a
   place inside `assets/` and be at most `assetMaximumBytes`. Anything else stays unresolved, and the image is missing.
 - **Versions.** The board version stays the git blob hash of the board file. The asset files a board references have a
@@ -523,7 +557,7 @@ Comments written through the API have the author kind `USER`. A comment text has
 
 | Verb | Path | Purpose |
 |---|---|---|
-| GET | `/boards/{projectKey}/{canvasKey}/{boardKey}` | the board HTML for the sandboxed iframe; query `token` (required), `contentHash`, `assetsHash`, `theme`, `site=1` (the site view: with the navigation script) |
+| GET | `/boards/{projectKey}/{canvasKey}/{boardKey}` | the board HTML for the sandboxed iframe; query `token` (required), `contentHash`, `assetsHash`, `theme`, `site=1` (the site view: with the navigation script), `scripts=1` (set by the canvas view for a board whose scripts run; keeps cached copies apart) |
 | GET | `/thumbnails/{thumbnailKey}` | a thumbnail; query `token` (required), `size` (`full` PNG, `small` PNG, `preview` WebP / JPEG) |
 | GET | `/assets/{projectKey}/{canvasKey}/{assetPath}` | an image of the canvas' `assets/` folder; query `token` (required), `v` (the file's blob hash: the checkout's file when it matches, else the copy kept with a commented version) |
 
@@ -598,8 +632,9 @@ for 20 minutes counts as lost: opening the canvas closes it as `FAILED` and file
   expiry are quantised to half-hour windows (a token is valid for 30 to 60 minutes and is the same for every request of
   a window, so URLs stay stable and the browser cache works). The token's account is loaded and must still pass
   `canView()`. Every failure answers 404.
-- **Sandboxed delivery.** Board files are untrusted HTML. `<script>` elements are removed before delivery, and the
-  answer carries a Content Security Policy: `default-src 'none'`, `script-src 'none'`, `connect-src 'none'`,
+- **Sandboxed delivery.** Board files are untrusted HTML. `<script>` elements are removed before delivery (a canvas
+  with board scripts keeps them: `script-src 'unsafe-inline'` plus its own asset path, `sandbox allow-scripts`, see
+  Board scripts), and the answer carries a Content Security Policy: `default-src 'none'`, `script-src 'none'`, `connect-src 'none'`,
   `form-action 'none'`, `base-uri 'none'`, `frame-ancestors 'self'`, `sandbox`, styles inline and from
   `https://fonts.googleapis.com`, fonts from `https://fonts.gstatic.com` and `data:`, images as `data:` / `blob:` and from
   the application itself (`'self'` and the request's origin: the asset route). Thumbnails are sent with

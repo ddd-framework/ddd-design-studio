@@ -71,6 +71,7 @@ class DesignProjectDefinitionsService extends Service
                 $canvasDefinition->boardPatterns = array_values(array_map('strval', $canvasConfig['boards'] ?? []));
                 $canvasDefinition->sectionPatterns = array_values(array_map('strval', $canvasConfig['sections'] ?? []));
                 $canvasDefinition->referenceTheme = isset($canvasConfig['referenceTheme']) ? (string)$canvasConfig['referenceTheme'] : null;
+                $canvasDefinition->runsBoardScripts = (bool)($canvasConfig['scripts'] ?? false);
                 $canvasDefinition->projectCode = $projectDefinition->code;
                 $canvasDefinition->code = $this->readCode($canvasConfig['code'] ?? null, "canvas '$projectKey/$canvasKey'");
                 $codePrefix = $canvasDefinition->getCodePrefix();

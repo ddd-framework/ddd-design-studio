@@ -67,6 +67,12 @@ class DesignStudioBoardView extends ValueObject
     public bool $isResponsive = false;
 
     /**
+     * @var bool The board's own scripts run (its canvas runs board scripts): its iframe needs `sandbox="allow-scripts"`,
+     *      never `allow-same-origin`
+     */
+    public bool $runsScripts = false;
+
+    /**
      * @var DesignStudioBoardFrameViews|null The device frames of a responsive board, side by side on the canvas (width
      *      and height of the board are then the extent of the frames in viewport mode); null for a fixed board
      */

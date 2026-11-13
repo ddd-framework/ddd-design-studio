@@ -37,6 +37,12 @@ class DesignBoardRenderedThumbnails extends ValueObject
      */
     public bool $fullPage = false;
 
+    /**
+     * @var bool The board's scripts run before the picture (its canvas runs board scripts); false = the renderer
+     *      removes them
+     */
+    public bool $runsScripts = false;
+
     public string $themeHash = '';
 
     /** @var string The theme's `<style data-design-theme>` element, empty = no theme */

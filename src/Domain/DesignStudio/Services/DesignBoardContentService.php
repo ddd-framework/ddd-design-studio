@@ -166,7 +166,8 @@ JS;
     /**
      * The board as delivered to the sandboxed iframe: without `<script>` elements (the sandbox and the CSP block
      * scripts anyway; removing them keeps the browser from requesting them and from logging a blocked execution per
-     * board) and, with a theme, with the theme's `<style>` element first in `<head>`.
+     * board), unless the canvas runs board scripts (DesignCanvasDefinition::$runsBoardScripts), and, with a theme,
+     * with the theme's `<style>` element first in `<head>`.
      * @param DesignCanvasDefinition $canvasDefinition
      * @param string $boardKey
      * @param string|null $contentHash the wanted version, null = the file of the checkout
@@ -183,12 +184,11 @@ JS;
         ?string $themeStyle = null,
         bool $useCache = true
     ): ?string {
-        $cache = Cache::instance();
         $cacheKey = $contentHash !== null && $themeStyle !== null
-            ? 'designStudio.themedHtml.' . $contentHash . '.' . sha1($themeStyle)
+            ? 'designStudio.themedHtml.' . $contentHash . '.' . sha1($themeStyle) . ($canvasDefinition->runsBoardScripts ? '.scripts' : '')
             : null;
         if ($useCache && $cacheKey !== null) {
-            $cachedHtml = $cache->get($cacheKey);
+            $cachedHtml = Cache::instance()->get($cacheKey);
             if (is_string($cachedHtml)) {
                 return $cachedHtml;
             }
@@ -197,17 +197,18 @@ JS;
         if ($boardHtml === null) {
             return null;
         }
-        $sandboxHtml = static::applyTheme(static::removeScripts($boardHtml), $themeStyle);
+        $sandboxHtml = static::applyTheme($canvasDefinition->runsBoardScripts ? $boardHtml : static::removeScripts($boardHtml), $themeStyle);
         if ($useCache && $cacheKey !== null) {
-            $cache->set($cacheKey, $sandboxHtml, static::THEMED_HTML_CACHE_SECONDS);
+            Cache::instance()->set($cacheKey, $sandboxHtml, static::THEMED_HTML_CACHE_SECONDS);
         }
         return $sandboxHtml;
     }
 
     /**
      * The site view's board: the sandboxed HTML (getBoardHtmlForSandbox()) with the studio's navigation script at the
-     * end. The script is the only one the page runs (the board's own scripts are removed; the CSP admits this script
-     * by its hash, so inline handlers and `javascript:` URLs stay blocked). It runs in an opaque origin and only tells
+     * end. On a canvas without board scripts it is the only one the page runs (the board's own scripts are removed;
+     * the CSP admits this script by its hash, so inline handlers and `javascript:` URLs stay blocked); on a canvas with
+     * board scripts it runs next to them. It runs in an opaque origin and only tells
      * the parent page, by `postMessage` with `source: 'design-studio-site'`:
      * - `navigate` with the `href` of a clicked link (the parent maps `/path` and `board:<file>` to a page; external
      *   links are not followed: every click is prevented; a `#fragment` link scrolls the page itself),

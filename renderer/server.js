@@ -107,7 +107,7 @@ const readBody = request =>
     request.on('error', reject);
   });
 
-/** @returns {{html: string, width: number, height: number, fullPage: boolean, themes: {themeHash: string, css: string}[]}} */
+/** @returns {{html: string, width: number, height: number, fullPage: boolean, scripts: boolean, themes: {themeHash: string, css: string}[]}} */
 const validateThumbnailsJob = body => {
   if (!body || typeof body.html !== 'string' || body.html === '') throw Object.assign(new Error('html is required'), { statusCode: 400 });
   const themes = Array.isArray(body.themes) ? body.themes : [];
@@ -117,7 +117,7 @@ const validateThumbnailsJob = body => {
       throw Object.assign(new Error('every theme needs themeHash and css'), { statusCode: 400 });
     }
   }
-  return { html: body.html, width: Number(body.width) || 390, height: Number(body.height) || 844, fullPage: body.fullPage === true, themes };
+  return { html: body.html, width: Number(body.width) || 390, height: Number(body.height) || 844, fullPage: body.fullPage === true, scripts: body.scripts === true, themes };
 };
 
 let browser = null;

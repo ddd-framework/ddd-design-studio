@@ -31,12 +31,13 @@ const toThemeStyleElement = css =>
 
 /**
  * The board HTML as the canvas iframe shows it minus the theme: scripts removed (the delivery endpoint strips them
- * too), the bundled fonts first in <head>. The theme style is inserted per theme afterwards.
+ * too) unless `keepScripts` (a canvas with board scripts), the bundled fonts first in <head>. The theme style is
+ * inserted per theme afterwards.
  */
-const prepareHtml = html => {
-  const withoutScripts = html
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, '')
-    .replace(/<script\b[^>]*\/>/gi, '');
+const prepareHtml = (html, keepScripts = false) => {
+  const withoutScripts = keepScripts
+    ? html
+    : html.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, '').replace(/<script\b[^>]*\/>/gi, '');
   const headMatch = /<head[^>]*>/i.exec(withoutScripts);
   if (!headMatch) return getFontFaceStyle() + withoutScripts;
   const insertAt = headMatch.index + headMatch[0].length;
@@ -46,11 +47,15 @@ const prepareHtml = html => {
 /** Highest picture of a whole page (`fullPage`): a longer page is cut there. */
 const MAXIMUM_FULL_PAGE_HEIGHT = 20000;
 
+/** Time the board's scripts get after the load and after each theme swap before the picture (`scripts`). */
+const SCRIPT_SETTLE_MILLISECONDS = 300;
+
 /**
  * @param {import('playwright').Browser} browser
- * @param {{html: string, width: number, height: number, fullPage?: boolean, themes: {themeHash: string, css: string}[]}} job
+ * @param {{html: string, width: number, height: number, fullPage?: boolean, scripts?: boolean, themes: {themeHash: string, css: string}[]}} job
  *   `fullPage`: the whole page at `width` — the picture is as high as the page (at least `height`, at most
- *   MAXIMUM_FULL_PAGE_HEIGHT); without it exactly `width` × `height`
+ *   MAXIMUM_FULL_PAGE_HEIGHT); without it exactly `width` × `height`. `scripts`: the board's own scripts run (still
+ *   without network) and get SCRIPT_SETTLE_MILLISECONDS before each picture; without it they are removed
  * @param {{signal?: AbortSignal}} [options]
  * @returns {Promise<{themeHash: string, full: Buffer, width: number, height: number}[]>}
  */
@@ -66,7 +71,7 @@ const renderBoardThemes = async (browser, job, options = {}) => {
     const page = await context.newPage();
     // the first theme is part of the initial document (same position as the delivery endpoint: first in <head>)
     const themes = job.themes.length ? job.themes : [{ themeHash: '', css: '' }];
-    const prepared = prepareHtml(job.html);
+    const prepared = prepareHtml(job.html, job.scripts === true);
     await page.setContent(prepared, { waitUntil: 'load', timeout: 60_000 });
     const images = [];
     for (const theme of themes) {
@@ -83,6 +88,7 @@ const renderBoardThemes = async (browser, job, options = {}) => {
         await Promise.all([...document.images].map(image => (image.complete ? null : image.decode().catch(() => null))));
         await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       });
+      if (job.scripts === true) await page.waitForTimeout(SCRIPT_SETTLE_MILLISECONDS);
       let pictureHeight = height;
       if (job.fullPage) {
         const pageHeight = await page.evaluate(() =>

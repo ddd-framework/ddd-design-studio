@@ -15,7 +15,7 @@ import type { DesignDevice, DesignStudioBoardView } from '../api/types';
 import { useDesignStudio, useDesignStudioTexts } from '../provider/DesignStudioProvider';
 import { cx } from '../utils/cx';
 import { BoardComments, type BoardPin, type CommentThread } from './BoardComments';
-import { designContentUrl } from './BoardNode';
+import { boardSandbox, designContentUrl } from './BoardNode';
 import { shortContentHash } from './canvasLiveUpdate';
 import type { BoardRegion } from './designReference';
 import { BoardStatusChips } from './BoardStatusChips';
@@ -343,7 +343,7 @@ export const BoardFocusView = ({
                           ref={frameRef}
                           src={htmlUrl}
                           title={board.title ?? board.boardKey ?? 'Board'}
-                          sandbox={isResponsive ? 'allow-scripts' : ''}
+                          sandbox={isResponsive ? 'allow-scripts' : boardSandbox(board)}
                           referrerPolicy="no-referrer"
                           width={width}
                           height={contentHeight}

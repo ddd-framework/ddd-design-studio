@@ -93,7 +93,7 @@ class DesignBoardAssetsServiceTest extends TestCase
     public function testInvalidPathsAreNoAssets(): void
     {
         $html = '<img src="assets/../canvas.json"><img src="assets/.hidden.png"><img src="assets/photos/../a.png">'
-            . '<img src="assets/script.js"><img src="assets/photos/.git/x.png"><img src="/assets/root.png">';
+            . '<img src="assets/data.json"><img src="assets/photos/.git/x.png"><img src="/assets/root.png">';
 
         $this->assertSame([], DesignBoardAssetsService::findReferencedAssetPaths($html));
         $this->assertFalse(DesignBoardAssetsService::isValidAssetPath('photos//a.png'));

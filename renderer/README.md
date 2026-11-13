@@ -31,7 +31,7 @@ Request (JSON body):
 
 ```json
 {
-  "html": "<!doctype html>… the board HTML (scripts are removed, as in the canvas iframe)",
+  "html": "<!doctype html>… the board HTML (scripts are removed, unless `scripts` is set)",
   "width": 390,
   "height": 844,
   "themes": [
@@ -46,6 +46,12 @@ the page height (`document.documentElement.scrollHeight`), at least `height` and
 image's `width` / `height` in the response are the picture's size. Without the field (or `false`) the picture is exactly
 `width` × `height`, as before. A renderer that does not know the field renders `width` × `height`: the frame then shows
 one screen of the page.
+
+Optional `"scripts": true` (sent by the studio for the boards of a canvas with board scripts, renderer 1.1.0): the
+board's `<script>` elements stay and run — still without network; the studio sends the canvas' script files inlined as
+`data:` URLs — and the picture is taken 300 ms after the load (and after each theme swap). Without the field the
+scripts are removed. A renderer that does not know the field removes them as well: the picture then shows the board
+before its scripts ran.
 
 The board is loaded **once**; each theme is applied by replacing the `<style data-design-theme>` element (first in
 `<head>`, exactly where the studio's content route injects it) — no reload. `css` may also be plain CSS (it is

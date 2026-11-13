@@ -1,9 +1,9 @@
 ---
 name: ddd-module-design-studio-specialist
-description: "Installs, wires and operates ddd-design-studio, a review studio for a checkout's HTML design boards. Covers canvas.json, board files and versions, assets-folder images, responsive boards in device frames (devices config, fullPage renderer), the site view (routes), the DesignStudio config files, thin controllers on the three traits, the token-guarded content route, object storage, the optional thumbnail renderer and worker, binding the access policy and theme provider, board codes (APP ONB-W2) and code links, and app:design-studio:show, comments, comments-poll, decisions, status, theme, thumbnails, prune. Use when installing the studio, adding a canvas, putting photos into boards, marking a board responsive, opening a canvas as a website, linking to a board, answering design comments as an agent, setting a board status, requesting thumbnails, or debugging an empty canvas, a missing board or image, No handler for message, missing thumbnails or a 404 on board content."
+description: "Installs, wires and operates ddd-design-studio, a review studio for a checkout's HTML design boards. Covers canvas.json, board files and versions, assets-folder images, board scripts, responsive boards in device frames (devices config, fullPage renderer), the site view (routes), the DesignStudio config files, thin controllers on the three traits, the token-guarded content route, object storage, the optional thumbnail renderer and worker, binding the access policy and theme provider, board codes (APP ONB-W2) and code links, and app:design-studio:show, comments, comments-poll, decisions, status, theme, thumbnails, prune. Use when installing the studio, adding a canvas, putting photos into boards, running board JavaScript, marking a board responsive, opening a canvas as a website, linking to a board, answering design comments as an agent, setting a board status, requesting thumbnails, or debugging an empty canvas, a missing board or image, No handler for message, missing thumbnails or a 404 on board content."
 metadata:
   author: mgamadeus
-  version: "0.5.2"
+  version: "0.6.0"
   module: mgamadeus/ddd-design-studio
 ---
 
@@ -119,6 +119,7 @@ return [
                 'sections' => ['*'],               // fnmatch patterns of note keys that are section titles
                 'referenceTheme' => null,          // e.g. 'brand:1' or 'brand:1:dark'
                 'code' => 'ONB',                   // optional: board codes `APP ONB-W2`
+                'scripts' => false,                // true: the boards' own scripts run (Board scripts)
             ],
         ],
     ],
@@ -185,6 +186,18 @@ without a page says "No page for /x". Write board links as such paths so the sit
 board route's `site=1` adds the studio's navigation script (CSP hash, `sandbox allow-scripts`). Comments work there as on
 the canvas.
 
+## Board scripts
+
+`'scripts' => true` on a canvas keeps its boards' inline `<script>` elements and script files of its `assets/` folder
+(`<script src="assets/tour.js">`, classic scripts only; `type="module"` files are refused in the opaque origin). They
+run in canvas tiles, device frames, focus view, present mode, the site view (next to its navigation script) and
+thumbnails (renderer 1.1.0: 300 ms after load; an older renderer shows the state before the scripts). Default `false`:
+`<script>` is removed.
+
+- CSP: `script-src 'unsafe-inline' <origin><contentBasePath>/assets/<project>/<canvas>/`, `connect-src 'none'`,
+  `form-action 'none'`; `sandbox allow-scripts`, never `allow-same-origin`.
+- Not available: network (fetch, XHR, external scripts), storage across reloads, forms, navigating the studio page.
+
 ## Images in boards: `assets/`
 
 Put images into `<canvas folder>/assets/` and reference them relative to the canvas folder; do not embed them as
@@ -197,7 +210,7 @@ base64 (every board would carry every photo, and each regeneration adds megabyte
 ```
 
 - Recognised in `src`, `href`, `poster`, `srcset` and CSS `url(…)`; `assets/<path>` or `./assets/<path>`.
-- Types `webp`, `png`, `jpg`, `jpeg`, `gif`, `avif`, `svg`; at most `DesignStudio.content.assetMaximumBytes` (5 MiB by
+- Types `webp`, `png`, `jpg`, `jpeg`, `gif`, `avif`, `svg`, `js` (runs only with board scripts); at most `DesignStudio.content.assetMaximumBytes` (5 MiB by
   default; the application's `content.php` must then name all three keys). Segments: letters, digits, `.`, `_`, `-`; no
   dotfiles, no `..`, no symbolic link out of `assets/`.
 - The board file stays unchanged; the studio rewrites the references on delivery (token and file version in the URL).
@@ -378,7 +391,8 @@ class AppDesignAccessPolicyService extends DesignAccessPolicyService
 | Symptom | Cause and fix |
 |---|---|
 | `The "App\…\App…Service" service or alias has been removed or inlined` | The access policy / theme subclass is only aliased; register the subclass itself as a public service (Bind the access policy and themes) |
-| Console shows "Blocked script execution in …/content/boards/…" | Not from the module: the delivered board has no `<script>` (removed, and the CSP says `script-src 'none'`). Browser extensions that inject scripts into every frame trigger it in the sandboxed iframe; harmless |
+| A board script does not run | The canvas lacks `'scripts' => true`; a script file is not `assets/<path>.js` or is `type="module"`; it uses the network or storage (blocked in the sandbox) |
+| Console shows "Blocked script execution in …/content/boards/…" | Not from the module: on a canvas without board scripts the delivered board has no `<script>` (removed, and the CSP says `script-src 'none'`). Browser extensions that inject scripts into every frame trigger it in the sandboxed iframe; harmless |
 | Canvas is empty, warning `No <folder>/canvas.json in this checkout` | The folder is not in the image / checkout of the answering process, the `folder` value is wrong, or it resolves outside the project root (symbolic link). Check the folder on the server, not locally |
 | `show` works locally but the studio page is empty | Different checkouts. The web process reads its own file system; deploy the canvas folder |
 | A board of `canvas.json` is missing, no warning | Its key is not a plain `.html` file name, starts with a dot, or does not match the canvas' `boards` patterns |

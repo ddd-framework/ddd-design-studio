@@ -110,6 +110,10 @@ class ArgusDesignBoardRenderedThumbnails extends DesignBoardRenderedThumbnails
             // sent only when set: a renderer without the field renders width × height as before
             $body['fullPage'] = true;
         }
+        if ($this->runsScripts) {
+            // sent only when set: a renderer without the field removes the scripts and renders the state before them
+            $body['scripts'] = true;
+        }
         return [
             'body' => $body,
             'headers' => $headers,
