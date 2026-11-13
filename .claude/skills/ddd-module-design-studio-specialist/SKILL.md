@@ -3,7 +3,7 @@ name: ddd-module-design-studio-specialist
 description: "Installs, wires and operates ddd-design-studio, a review studio for a checkout's HTML design boards. Covers canvas.json, board files and versions, assets-folder images, board scripts, responsive boards in device frames (devices config, fullPage renderer), the site view (routes), the DesignStudio config files, thin controllers on the three traits, the token-guarded content route, object storage, the optional thumbnail renderer and worker, binding the access policy and theme provider, board codes (APP ONB-W2) and code links, and app:design-studio:show, comments, comments-poll, decisions, status, theme, thumbnails, prune. Use when installing the studio, adding a canvas, putting photos into boards, running board JavaScript, marking a board responsive, opening a canvas as a website, linking to a board, answering design comments as an agent, setting a board status, requesting thumbnails, or debugging an empty canvas, a missing board or image, No handler for message, missing thumbnails or a 404 on board content."
 metadata:
   author: mgamadeus
-  version: "0.6.0"
+  version: "0.6.1"
   module: mgamadeus/ddd-design-studio
 ---
 
@@ -337,7 +337,7 @@ Request statuses: `QUEUED`, `RUNNING`, `WAITING_FOR_RENDERER` (renderer answered
 unreachable; retried with backoff), `DONE`, `FAILED`. A request stays open only while a shard has a queued or running
 message: a board that changed during the run is read again 10 seconds later, a shard that is through watches the others
 every minute and closes the request when nothing renderable is missing (missing boards unchanged for 3 minutes, no shard
-waiting for the renderer). Opening a canvas replaces a request without change for 20 minutes. A thumbnail key is derived from content hash, theme hash and
+waiting for the renderer). Every run, stored thumbnail and retry writes the request; opening a canvas replaces a request without a write for 5 minutes (a failing object store is retried with backoff, reason in `lastError`). A thumbnail key is derived from content hash, theme hash and
 `rendererVersion`: changing `rendererVersion` makes every thumbnail render anew.
 
 ## Bind the access policy and themes
@@ -404,7 +404,7 @@ class AppDesignAccessPolicyService extends DesignAccessPolicyService
 | An image of a board is missing | The reference is not `assets/…` / `./assets/…` in `src`, `href`, `poster`, `srcset` or `url()`; the type is not an image type; the path has a dot segment or other characters; the file is larger than `assetMaximumBytes`, resolves outside `assets/`, or is not in the deployed image |
 | Old version of a commented board cannot be shown | No object store was configured when the thread started (no snapshot), or the snapshot object is gone |
 | `No handler for message "…RenderDesignStudioThumbnailsMessage"` | The handler tag is missing in `services.yaml`, or the worker runs a container built before it was added. Add the tag, rebuild the container, restart the workers |
-| Render request stays `QUEUED` | No consumer on `render_design_studio_thumbnails`, transport or routing missing, or the message's account fails `canView()` in the worker. After 20 minutes without change the next request replaces it |
+| Render request stays `QUEUED` | No consumer on `render_design_studio_thumbnails`, transport or routing missing, or the message's account fails `canView()` in the worker. After 5 minutes without a write the next request replaces it |
 | Render request `WAITING_FOR_RENDERER` | See `lastError` (`app:design-studio:thumbnails …`): endpoint not reachable (404), token missing or wrong (401), renderer busy (429) |
 | Request `DONE` but thumbnails are missing | No object store configured (thumbnails cannot be stored), or single boards failed: see `lastError` |
 | `app:design-studio:thumbnails` prints `No renderer is configured` | `DesignStudio.renderer.enabled` is `false` in the effective config (an application file replaces the module file as a whole) |

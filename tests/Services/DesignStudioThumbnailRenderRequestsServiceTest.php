@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace DDD\Tests\DesignStudio\Services;
 
 use DDD\DDDBundle;
+use DDD\Domain\Base\Entities\ChangeHistory\ChangeHistory;
+use DDD\Infrastructure\Base\DateTime\DateTime;
+use DDD\Infrastructure\Exceptions\InternalErrorException;
 use DDD\Domain\DesignStudio\Entities\Definitions\DesignCanvasDefinition;
 use DDD\Domain\DesignStudio\Entities\Directory\DesignDirectoryBoard;
 use DDD\Domain\DesignStudio\Entities\Directory\DesignDirectoryBoards;
@@ -37,6 +40,9 @@ class DesignStudioThumbnailRenderRequestsServiceTest extends TestCase
 
     /** @var string[] content hash => true for every rendered board version */
     protected array $renderedContentHashes = [];
+
+    /** @var int stores of a thumbnail that fail (the object store is not reachable) before the next one succeeds */
+    protected int $failingThumbnailStoreCount = 0;
 
     protected function setUp(): void
     {
@@ -87,9 +93,20 @@ class DesignStudioThumbnailRenderRequestsServiceTest extends TestCase
     protected function createThumbnailsService(): DesignStudioThumbnailsService
     {
         $renderedContentHashes = &$this->renderedContentHashes;
-        return new class($renderedContentHashes) extends DesignStudioThumbnailsService {
-            public function __construct(protected array &$testRenderedContentHashes)
+        $failingThumbnailStoreCount = &$this->failingThumbnailStoreCount;
+        return new class($renderedContentHashes, $failingThumbnailStoreCount) extends DesignStudioThumbnailsService {
+            public function __construct(protected array &$testRenderedContentHashes, protected int &$testFailingThumbnailStoreCount)
             {
+            }
+
+            public function storeThumbnail(DesignDirectoryBoard $designDirectoryBoard, string $themeHash, string $png): ?DesignStudioThumbnail
+            {
+                if ($this->testFailingThumbnailStoreCount > 0) {
+                    $this->testFailingThumbnailStoreCount--;
+                    throw new InternalErrorException('Object storage "test": put failed: Could not contact remote server');
+                }
+                $this->testRenderedContentHashes[(string)$designDirectoryBoard->contentHash] = true;
+                return null;
             }
 
             public function findForBoards(DesignDirectoryBoards $designDirectoryBoards, string $themeHash): DesignStudioThumbnails
@@ -123,6 +140,12 @@ class DesignStudioThumbnailRenderRequestsServiceTest extends TestCase
             public $beforeBoardIsRead = null;
 
             public int $currentTimestamp = 1000000;
+
+            /** @var array[] the columns of every write of the request (each also stamps its modified time) */
+            public array $requestWrites = [];
+
+            /** true: a finished render goes through the service's own finishRender() (stores the thumbnail) */
+            public bool $usesTheServiceFinishRender = false;
 
             public function __construct(public DesignStudioThumbnailRenderRequest $testRenderRequest, protected array &$testRenderedContentHashes)
             {
@@ -168,11 +191,19 @@ class DesignStudioThumbnailRenderRequestsServiceTest extends TestCase
             {
                 $renderRequest->status = $status;
                 $renderRequest->lastError = $lastError;
+                $this->writeRequestColumns($renderRequest, 'status', 'lastError');
             }
 
             protected function storeLastError(DesignStudioThumbnailRenderRequest $renderRequest, string $lastError): void
             {
                 $renderRequest->lastError = $lastError;
+                $this->writeRequestColumns($renderRequest, 'lastError');
+            }
+
+            protected function writeRequestColumns(DesignStudioThumbnailRenderRequest $renderRequest, string ...$propertyNames): void
+            {
+                $this->requestWrites[] = $propertyNames;
+                $renderRequest->changeHistory->modifiedTime = DateTime::fromTimestamp($this->currentTimestamp);
             }
 
             protected function logRun(DesignStudioThumbnailRenderRequest $renderRequest, int $shard, int $shardCount, int $renderedBoardCount, int $startedAt): void
@@ -206,6 +237,9 @@ class DesignStudioThumbnailRenderRequestsServiceTest extends TestCase
                 int $shard,
                 int $shardCount
             ): bool {
+                if ($this->usesTheServiceFinishRender) {
+                    return parent::finishRender($renderRequest, $designDirectoryBoard, $renderer, $shard, $shardCount);
+                }
                 $this->testRenderedContentHashes[(string)$designDirectoryBoard->contentHash] = true;
                 return true;
             }
@@ -222,6 +256,9 @@ class DesignStudioThumbnailRenderRequestsServiceTest extends TestCase
         $renderRequest->status = DesignStudioThumbnailRenderRequest::STATUS_QUEUED;
         $renderRequest->lastError = null;
         $renderRequest->priorityBoardKeys = null;
+        $renderRequest->attempts = 0;
+        $renderRequest->changeHistory = new ChangeHistory();
+        $renderRequest->changeHistory->createdTime = DateTime::fromTimestamp(1000000);
         return $renderRequest;
     }
 
@@ -359,5 +396,52 @@ class DesignStudioThumbnailRenderRequestsServiceTest extends TestCase
         $this->assertSame(DesignStudioThumbnailRenderRequest::STATUS_DONE, $renderRequest->status);
         $this->assertSame($boardOfShardZero . ': changed during every run, not rendered', $renderRequest->lastError);
         $this->assertSame([], $designStudioThumbnailRenderRequestsService->dispatchedRuns);
+    }
+
+    public function testAFailingObjectStoreIsRecordedRetriedAndTheRequestEndsDone(): void
+    {
+        $this->writeBoard('home.html', '<p>home</p>');
+        $renderRequest = $this->createRenderRequest();
+        $service = $this->createService($renderRequest);
+        $service->usesTheServiceFinishRender = true;
+        $this->failingThumbnailStoreCount = 1;
+
+        $service->processRequest(1);
+
+        $this->assertSame(DesignStudioThumbnailRenderRequest::STATUS_WAITING_FOR_RENDERER, $renderRequest->status);
+        $this->assertStringContainsString('home.html: storing the thumbnail failed: Object storage', (string)$renderRequest->lastError);
+        $this->assertSame(1, $renderRequest->attempts);
+        $this->assertCount(1, $service->dispatchedRuns);
+        $this->assertLessThanOrEqual(DesignStudioThumbnailRenderRequestsService::STALLED_AFTER_SECONDS, $service->dispatchedRuns[0][0]);
+
+        $service->currentTimestamp += 60;
+        $service->runNextDispatchedRun();
+
+        $this->assertSame(DesignStudioThumbnailRenderRequest::STATUS_DONE, $renderRequest->status);
+        $this->assertSame(0, $renderRequest->attempts);
+    }
+
+    public function testEveryRunWritesTheRequestAndStallingCountsFromTheLastWrite(): void
+    {
+        $this->writeBoard('home.html', '<p>home</p>');
+        $renderRequest = $this->createRenderRequest();
+        $service = $this->createService($renderRequest);
+        $service->currentTimestamp = 1000000 + 3600;
+
+        $this->assertTrue($service->isStalled($renderRequest), 'never written for an hour');
+        $service->processRequest(1);
+
+        $this->assertSame([], $service->requestWrites[0], 'the run itself writes the request first');
+        $this->assertSame(1000000 + 3600, $renderRequest->changeHistory->modifiedTime->getTimestamp());
+        $service->currentTimestamp += DesignStudioThumbnailRenderRequestsService::STALLED_AFTER_SECONDS - 1;
+        $this->assertFalse($service->isStalled($renderRequest));
+        $service->currentTimestamp += 2;
+        $this->assertTrue($service->isStalled($renderRequest));
+        $this->assertSame(300, DesignStudioThumbnailRenderRequestsService::STALLED_AFTER_SECONDS);
+        $this->assertLessThan(
+            DesignStudioThumbnailRenderRequestsService::STALLED_AFTER_SECONDS - 10,
+            DesignStudioThumbnailRenderRequestsService::MAX_BACKOFF_SECONDS,
+            'a waiting request retries (with jitter) before it counts as lost'
+        );
     }
 }

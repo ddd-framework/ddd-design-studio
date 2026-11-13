@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.1
+
+- **A stuck render request blocks for 5 minutes, not 20:** every run (a redelivered one too), every stored thumbnail,
+  every retry and every watching look now writes the request's modified time. Before, the partial writes left it
+  untouched, so `isStalled()` counted from the creation and a request whose shard died kept the canvas for 20 minutes.
+  An open request without a write for `STALLED_AFTER_SECONDS` (now 300) is replaced when the canvas is opened.
+- **A failing object store is visible and retried:** a thumbnail that cannot be stored puts the request into
+  `WAITING_FOR_RENDERER` with the reason in `lastError` and retries with backoff, instead of throwing out of the run.
+- The longest retry delay is 240 seconds (was 600), below the stall limit.
+
 ## 0.6.0
 
 - **Board scripts:** a canvas with `'scripts' => true` in `DesignStudio.projects` keeps its boards' inline `<script>`

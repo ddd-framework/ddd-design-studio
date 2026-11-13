@@ -15,6 +15,7 @@ use DDD\Domain\DesignStudio\Repo\DB\Thumbnails\RenderRequests\DBDesignStudioThum
 use DDD\Domain\DesignStudio\Repo\DB\Thumbnails\RenderRequests\DBDesignStudioThumbnailRenderRequests;
 use DDD\Domain\Base\Services\EntitiesService;
 use DDD\Domain\Common\Entities\Accounts\Account;
+use DDD\Infrastructure\Base\DateTime\DateTime;
 use DDD\Infrastructure\Exceptions\BadRequestException;
 use DDD\Infrastructure\Exceptions\InternalErrorException;
 use DDD\Infrastructure\Libs\Config;
@@ -53,14 +54,14 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
     /** @var int Seconds a run renders before it continues in a new message */
     public const int RUN_BUDGET_SECONDS = 90;
 
-    /** @var int Waiting runs in a row before the request fails (backoff caps at MAX_BACKOFF_SECONDS: about 4 hours) */
+    /** @var int Waiting runs in a row before the request fails (backoff caps at MAX_BACKOFF_SECONDS: about 2 hours) */
     public const int MAX_ATTEMPTS = 30;
 
     /** @var int First retry delay in seconds after a renderer failure (doubles per attempt) */
     public const int FIRST_BACKOFF_SECONDS = 30;
 
-    /** @var int Longest retry delay in seconds */
-    public const int MAX_BACKOFF_SECONDS = 600;
+    /** @var int Longest retry delay in seconds: below STALLED_AFTER_SECONDS, so a waiting request keeps its slot */
+    public const int MAX_BACKOFF_SECONDS = 240;
 
     /** @var int Boards rendered at once without a configured concurrency */
     public const int RENDER_CONCURRENCY_DEFAULT = 2;
@@ -71,8 +72,12 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
     /** @var int Most priority board keys kept on a request */
     public const int MAX_PRIORITY_BOARDS = 200;
 
-    /** @var int Seconds without any sign of a render run after which an open request counts as lost and is replaced */
-    public const int STALLED_AFTER_SECONDS = 1200;
+    /**
+     * @var int Seconds without any write after which an open request counts as lost and is replaced. Every run, every
+     *          stored thumbnail, every retry and every watching look writes it; longer than one run plus the render of
+     *          one board, and than the longest backoff (with its jitter)
+     */
+    public const int STALLED_AFTER_SECONDS = 300;
 
     /** @var int Seconds until a shard whose board changed during its run reads the boards again */
     public const int CHANGED_BOARD_FOLLOW_UP_DELAY_SECONDS = 10;
@@ -213,6 +218,8 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
         if (!$renderRequest || !$renderRequest->isOpen()) {
             return;
         }
+        // every run (a redelivered one too) is a sign of life: isStalled() measures from the last one
+        $this->writeRequestColumns($renderRequest);
         /** @var DesignProjectDefinitionsService $designProjectDefinitionsService */
         $designProjectDefinitionsService = DDDService::instance()->getService(DesignProjectDefinitionsService::class);
         $canvasDefinition = $designProjectDefinitionsService->getCanvasDefinition((string)$renderRequest->projectKey, (string)$renderRequest->canvasKey);
@@ -558,10 +565,18 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
             $this->storeLastError($renderRequest, "$designDirectoryBoard->boardKey: HTTP $renderer->failureStatusCode $renderer->failureReason");
             return true;
         }
-        $this->getDesignStudioThumbnailsService()->storeThumbnail($designDirectoryBoard, $renderer->themeHash, (string)$renderer->png);
+        try {
+            $this->getDesignStudioThumbnailsService()->storeThumbnail($designDirectoryBoard, $renderer->themeHash, (string)$renderer->png);
+        } catch (InternalErrorException $internalErrorException) {
+            // the object store failed (e.g. not reachable): retried like a busy renderer, the reason in lastError
+            $this->waitForRenderer($renderRequest, null, "$designDirectoryBoard->boardKey: storing the thumbnail failed: " . $internalErrorException->getMessage(), $shard, $shardCount);
+            return false;
+        }
         if ($renderRequest->attempts) {
             $renderRequest->attempts = 0;
-            $renderRequest->updatePartialIgnoringRights('attempts');
+            $this->writeRequestColumns($renderRequest, 'attempts');
+        } else {
+            $this->writeRequestColumns($renderRequest);
         }
         return true;
     }
@@ -584,7 +599,7 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
         int $shardCount
     ): void {
         $renderRequest->attempts = ($renderRequest->attempts ?? 0) + 1;
-        $renderRequest->updatePartialIgnoringRights('attempts');
+        $this->writeRequestColumns($renderRequest, 'attempts');
         $error = mb_substr(($statusCode !== null ? "HTTP $statusCode " : '') . $reason, 0, 1000);
         if ($renderRequest->attempts >= static::MAX_ATTEMPTS) {
             $this->setStatus($renderRequest, DesignStudioThumbnailRenderRequest::STATUS_FAILED, $error);
@@ -597,8 +612,8 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
 
     /**
      * @param DesignStudioThumbnailRenderRequest $renderRequest an open request
-     * @return bool true when the request did not change for STALLED_AFTER_SECONDS (longer than the longest backoff
-     *              plus one run); every run and every retry writes the request
+     * @return bool true when the request was not written for STALLED_AFTER_SECONDS; every run, every stored thumbnail
+     *              and every retry writes it (writeRequestColumns())
      * @throws BadRequestException
      * @throws InternalErrorException
      * @throws InvalidArgumentException
@@ -606,9 +621,26 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
      */
     public function isStalled(DesignStudioThumbnailRenderRequest $renderRequest): bool
     {
-        $stalledBefore = time() - static::STALLED_AFTER_SECONDS;
+        $stalledBefore = $this->getCurrentTimestamp() - static::STALLED_AFTER_SECONDS;
         $lastChange = $renderRequest->changeHistory->modifiedTime ?? $renderRequest->changeHistory->createdTime ?? null;
         return $lastChange && $lastChange->getTimestamp() < $stalledBefore;
+    }
+
+    /**
+     * Writes the named columns of a request together with the modified time of its change history. A partial write
+     * maps the change history but writes only the columns it names, so the modified column is named here: without it
+     * the request would look unchanged since its creation and isStalled() would count from there.
+     * @param DesignStudioThumbnailRenderRequest $renderRequest
+     * @param string ...$propertyNames
+     * @return void
+     */
+    protected function writeRequestColumns(DesignStudioThumbnailRenderRequest $renderRequest, string ...$propertyNames): void
+    {
+        $modifiedColumn = DesignStudioThumbnailRenderRequest::getChangeHistoryAttribute(true)?->getModifiedColumn();
+        $renderRequest->updatePartialIgnoringRights(...$propertyNames, ...($modifiedColumn !== null ? [$modifiedColumn] : []));
+        if (isset($renderRequest->changeHistory)) {
+            $renderRequest->changeHistory->modifiedTime = DateTime::fromTimestamp($this->getCurrentTimestamp());
+        }
     }
 
     /**
@@ -621,7 +653,7 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
     {
         $renderRequest->status = $status;
         $renderRequest->lastError = $lastError;
-        $renderRequest->updatePartialIgnoringRights('status', 'lastError');
+        $this->writeRequestColumns($renderRequest, 'status', 'lastError');
     }
 
     /**
@@ -632,7 +664,7 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
     protected function storeLastError(DesignStudioThumbnailRenderRequest $renderRequest, string $lastError): void
     {
         $renderRequest->lastError = mb_substr($lastError, 0, 1000);
-        $renderRequest->updatePartialIgnoringRights('lastError');
+        $this->writeRequestColumns($renderRequest, 'lastError');
     }
 
     /**
