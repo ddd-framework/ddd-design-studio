@@ -428,7 +428,9 @@ A responsive board is one file shown at several viewport widths:
   code and comments. The toolbar switches all frames between one screen (the device height) and the whole page (the
   height the renderer measured at that width; at most 8000 px on the canvas).
 - **Focus view and present mode.** A device picker (the presets), landscape / portrait, a free width by the drag handle
-  at the right edge and the device frame switch. A viewport wider than the screen is scaled down. The chosen viewport
+  at the right edge and the device frame switch. A viewport wider than the screen is scaled down. The board runs as
+  on the device: one screen high, the page scrolls inside it (fixed and sticky elements, `vh` units as on the device;
+  the board route's `site=1` script reports the scroll position, pins and the marked region follow it). The chosen viewport
   stays while stepping through boards (also in present mode) and is reset when the focus view closes.
 - **Comments.** A pin keeps the viewport it was placed in (`viewportWidth`, `viewportHeight`, `deviceKey` on the
   comment); `x` / `y` are positions in the page at that width. A pin is shown at its width only; the thread names its

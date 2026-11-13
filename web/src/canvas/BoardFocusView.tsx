@@ -28,6 +28,7 @@ import {
   viewportWithWidth,
 } from './deviceViewport';
 import { ViewportToolbar, WidthDragHandle } from './ViewportControls';
+import { parseSiteFrameMessage } from '../site/siteNavigation';
 import { useStableContentUrl } from './stableContentUrl';
 import { useCheckedContentUrl } from './useCheckedContentUrl';
 
@@ -161,7 +162,27 @@ export const BoardFocusView = ({
   const frameOfWidth = isResponsive ? framesOf(board).find(frame => frame.width === width) : undefined;
   // the iframe mounts only after the HTML answered 2xx: an error keeps the thumbnail, retried in the background
   // stable per content: a rotated content token does not reload the open board
-  const htmlUrl = useCheckedContentUrl(useStableContentUrl(designContentUrl(apiBaseUrl, board?.htmlUrl), true));
+  // a responsive board runs like on the device: the iframe is one screen (device width × height) and the page scrolls
+  // inside it, so fixed / sticky elements and vh units behave as on the device; the studio's navigation script
+  // (`site=1`) reports the scroll position, and pins, the region and new pins follow it
+  const boardHtmlPath = board?.htmlUrl ? (isResponsive ? `${board.htmlUrl}&site=1` : board.htmlUrl) : null;
+  const htmlUrl = useCheckedContentUrl(useStableContentUrl(designContentUrl(apiBaseUrl, boardHtmlPath), true));
+  const frameRef = useRef<HTMLIFrameElement | null>(null);
+  const [frameScrollTop, setFrameScrollTop] = useState(0);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new page or width starts at the top
+  useEffect(() => setFrameScrollTop(0), [htmlUrl, width]);
+  useEffect(() => {
+    if (!isResponsive) return;
+    const onMessage = (event: MessageEvent) => {
+      if (!frameRef.current || event.source !== frameRef.current.contentWindow) return;
+      const message = parseSiteFrameMessage(event.data);
+      if (message?.type === 'scroll') setFrameScrollTop(message.top);
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [isResponsive]);
+  const scrollOffset = isResponsive ? frameScrollTop : 0;
+  const contentHeight = isResponsive ? screenHeight : height;
   const thumbnailUrl = useStableContentUrl(
     designContentUrl(apiBaseUrl, isResponsive ? frameOfWidth?.thumbnailUrl : board?.thumbnailUrl),
     true
@@ -187,7 +208,7 @@ export const BoardFocusView = ({
     const rect = event.currentTarget.getBoundingClientRect();
     return {
       x: Math.max(0, Math.min(width, (event.clientX - rect.left) / scale)),
-      y: Math.max(0, Math.min(height, (event.clientY - rect.top) / scale)),
+      y: Math.max(0, Math.min(contentHeight, (event.clientY - rect.top) / scale)) + scrollOffset,
     };
   };
   const startRegion = (event: PointerEvent<HTMLButtonElement>) => {
@@ -227,7 +248,7 @@ export const BoardFocusView = ({
     const rect = event.currentTarget.getBoundingClientRect();
     setPendingPin({
       x: Math.round((event.clientX - rect.left) / scale),
-      y: Math.round((event.clientY - rect.top) / scale),
+      y: Math.round((event.clientY - rect.top) / scale + scrollOffset),
       viewport: isResponsive ? viewport : null,
     });
     setIsPlacingPin(false);
@@ -294,7 +315,8 @@ export const BoardFocusView = ({
                 >
                   <div
                     className={cx(
-                      'relative overflow-y-auto overflow-x-hidden bg-card',
+                      'relative overflow-x-hidden bg-card',
+                      isResponsive ? 'overflow-y-hidden' : 'overflow-y-auto',
                       !isResponsive || showsDeviceFrame
                         ? !isResponsive || viewport.width < 600
                           ? 'rounded-[44px]'
@@ -303,26 +325,28 @@ export const BoardFocusView = ({
                     )}
                     style={{ width, height: screenHeight }}
                   >
-                    <div className="relative" style={{ width, height }}>
+                    <div className="relative overflow-hidden" style={{ width, height: contentHeight }}>
                       {thumbnailUrl && (
                         // biome-ignore lint/performance/noImgElement: API thumbnail under the live board while it loads
                         <img
                           src={thumbnailUrl}
                           alt=""
                           width={width}
-                          height={height}
-                          className="pointer-events-none absolute inset-0 select-none"
+                          height={isResponsive ? undefined : height}
+                          className="pointer-events-none absolute left-0 select-none"
+                          style={{ top: -scrollOffset, width }}
                         />
                       )}
                       {htmlUrl && (
                         <iframe
                           key={htmlUrl}
+                          ref={frameRef}
                           src={htmlUrl}
                           title={board.title ?? board.boardKey ?? 'Board'}
-                          sandbox=""
+                          sandbox={isResponsive ? 'allow-scripts' : ''}
                           referrerPolicy="no-referrer"
                           width={width}
-                          height={height}
+                          height={contentHeight}
                           className="absolute inset-0 border-0 bg-transparent"
                         />
                       )}
@@ -353,7 +377,7 @@ export const BoardFocusView = ({
                           )}
                           style={{
                             left: shownRegion.x,
-                            top: shownRegion.y,
+                            top: shownRegion.y - scrollOffset,
                             width: shownRegion.width,
                             height: shownRegion.height,
                           }}
@@ -371,7 +395,7 @@ export const BoardFocusView = ({
                             thread.root.isResolved ? 'bg-muted text-muted-foreground' : 'bg-primary text-primary-foreground',
                             highlightedCommentId === Number(thread.root.id) && 'ring-brand scale-110'
                           )}
-                          style={{ left: thread.root.x ?? 0, top: thread.root.y ?? 0 }}
+                          style={{ left: thread.root.x ?? 0, top: (thread.root.y ?? 0) - scrollOffset }}
                         >
                           {thread.pinNumber}
                         </button>
@@ -379,7 +403,7 @@ export const BoardFocusView = ({
                       {pendingPin && (
                         <span
                           className="absolute z-20 flex size-7 -translate-x-1/2 -translate-y-full items-center justify-center rounded-full rounded-bl-none bg-brand text-card shadow-surface-raised ring-2 ring-card"
-                          style={{ left: pendingPin.x, top: pendingPin.y }}
+                          style={{ left: pendingPin.x, top: pendingPin.y - scrollOffset }}
                           aria-hidden
                         >
                           <MapPin className="size-4" />

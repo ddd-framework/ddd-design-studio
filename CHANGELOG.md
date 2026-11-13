@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.2
+
+- **Focus view and present mode run a responsive board as on the device:** the iframe is one screen (device width ×
+  height) and the page scrolls inside it, as in the site view. Before, the iframe was as tall as the whole page, so
+  `position: fixed` / `sticky` elements (a phone dock, a sticky header) sat at the end of the page and `vh` units were
+  page-relative. Pins, new pins and the marked region follow the page's scroll position (reported by the board route's
+  `site=1` script). Fixed boards are unchanged.
+
 ## 0.5.1
 
 - `app:design-studio:thumbnails` counts pictures: a responsive board has one per device frame ("N of M pictures have a
