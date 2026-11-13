@@ -78,10 +78,17 @@ trait DesignStudioContentControllerTrait
                 'token=' . rawurlencode((string)$requestDto->token)
             );
         }
+        $isSiteView = (bool)($requestDto->site ?? false);
+        if ($isSiteView) {
+            $boardHtml = DesignBoardContentService::addSiteNavigationScript($boardHtml);
+        }
         $response = new HtmlResponseDto($boardHtml, 200, [], 'text/html; charset=utf-8');
         $response->headers->set(
             'Content-Security-Policy',
-            implode('; ', $this->getBoardHtmlContentSecurityPolicyDirectives($requestService->getRequestStack()->getCurrentRequest()?->getSchemeAndHttpHost()))
+            implode('; ', $this->getBoardHtmlContentSecurityPolicyDirectives(
+                $requestService->getRequestStack()->getCurrentRequest()?->getSchemeAndHttpHost(),
+                $isSiteView
+            ))
         );
         // a URL with a content hash names one version for good (with asset files: only together with their version);
         // without one it follows the checkout
@@ -160,21 +167,23 @@ trait DesignStudioContentControllerTrait
      * @param string|null $applicationOrigin scheme and host of the application (`https://admin.example.com`): the
      *        origin of the asset route. Named explicitly because `'self'` of a sandboxed document is not reliably its
      *        URL's origin.
+     * @param bool $isSiteView the board for the site view: its navigation script may run (by hash, `sandbox allow-scripts`)
      * @return string[] Content-Security-Policy directives of board HTML
      */
-    protected function getBoardHtmlContentSecurityPolicyDirectives(?string $applicationOrigin = null): array
+    protected function getBoardHtmlContentSecurityPolicyDirectives(?string $applicationOrigin = null, bool $isSiteView = false): array
     {
         return [
             "default-src 'none'",
             "style-src 'unsafe-inline' https://fonts.googleapis.com",
             'font-src https://fonts.gstatic.com data:',
             trim("img-src data: blob: 'self' " . ($applicationOrigin ?? '')),
-            "script-src 'none'",
+            // the site view runs the studio's navigation script only (by its hash); in an opaque origin
+            $isSiteView ? 'script-src ' . DesignBoardContentService::getSiteNavigationScriptSource() : "script-src 'none'",
             "connect-src 'none'",
             "form-action 'none'",
             "base-uri 'none'",
             "frame-ancestors 'self'",
-            'sandbox',
+            $isSiteView ? 'sandbox allow-scripts' : 'sandbox',
         ];
     }
 

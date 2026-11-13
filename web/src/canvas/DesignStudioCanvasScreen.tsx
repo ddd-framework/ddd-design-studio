@@ -17,6 +17,7 @@ import {
   RefreshCw,
   Sun,
   FoldVertical,
+  Globe,
   UnfoldVertical,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -247,6 +248,7 @@ export const DesignStudioCanvasScreen = ({ projectKey, canvasKey }: DesignStudio
     api,
     components,
     notify,
+    paths,
     router,
     shell,
     statuses: statusDefinitions,
@@ -1056,8 +1058,27 @@ export const DesignStudioCanvasScreen = ({ projectKey, canvasKey }: DesignStudio
     </div>
   );
 
+  const siteStartRoute = selectedBoard?.route ?? (shownBoardList.some(board => board.route) ? '/' : null);
+  const siteHref =
+    paths.site && siteStartRoute !== null
+      ? `${paths.site(projectKey, canvasKey, siteStartRoute)}${
+          shownLook?.themeId ? `?theme=${encodeURIComponent(shownLook.themeId)}&mode=${shownLook.mode}` : ''
+        }`
+      : null;
   const toolbarEnd = (
     <>
+      {siteHref && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span>
+              <router.Link href={siteHref} className={TOOL_BUTTON_CLASS}>
+                <Globe className="size-4" aria-label={texts.openAsWebsite} />
+              </router.Link>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{texts.openAsWebsite}</TooltipContent>
+        </Tooltip>
+      )}
       {hasResponsiveBoards && (
         <Tooltip>
           <TooltipTrigger asChild>

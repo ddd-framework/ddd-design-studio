@@ -391,6 +391,20 @@ class DesignDirectoryReaderService extends Service
             $this->storeFileHashes($folderPath, $fileHashes);
         }
         usort($boards, static fn(DesignDirectoryBoard $first, DesignDirectoryBoard $second) => [$first->y, $first->x] <=> [$second->y, $second->x]);
+        // a route names one page: the first board (top to bottom) keeps it, a later one loses it with a warning
+        $boardKeysByRoute = [];
+        foreach ($boards as $designDirectoryBoard) {
+            if ($designDirectoryBoard->route === null) {
+                continue;
+            }
+            if (isset($boardKeysByRoute[$designDirectoryBoard->route])) {
+                $designDirectoryCanvas->warnings[] = "Route {$designDirectoryBoard->route} of board {$designDirectoryBoard->boardKey} is taken by "
+                    . $boardKeysByRoute[$designDirectoryBoard->route];
+                $designDirectoryBoard->route = null;
+                continue;
+            }
+            $boardKeysByRoute[$designDirectoryBoard->route] = $designDirectoryBoard->boardKey;
+        }
         $designDirectoryBoards = new DesignDirectoryBoards();
         foreach ($boards as $designDirectoryBoard) {
             $designDirectoryBoards->add($designDirectoryBoard);

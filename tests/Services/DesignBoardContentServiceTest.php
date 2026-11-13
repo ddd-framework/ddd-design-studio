@@ -53,4 +53,19 @@ class DesignBoardContentServiceTest extends TestCase
         $this->assertNull($designThemeProviderService->getThemeStyleForReference(null));
         $this->assertSame(hash('sha256', ''), DesignThemeProviderService::computeThemeHash(null));
     }
+
+    public function testTheSiteViewAddsOnlyTheNavigationScriptAdmittedByItsHash(): void
+    {
+        $sandboxHtml = DesignBoardContentService::removeScripts('<html><body><a href="/x">x</a><script>alert(1)</script></body></html>');
+        $siteHtml = DesignBoardContentService::addSiteNavigationScript($sandboxHtml);
+
+        $this->assertSame(1, substr_count($siteHtml, '<script>'));
+        $this->assertStringContainsString('<script>' . DesignBoardContentService::SITE_NAVIGATION_SCRIPT . '</script></body>', $siteHtml);
+        $this->assertStringNotContainsString('alert(1)', $siteHtml);
+        $this->assertSame(
+            "'sha256-" . base64_encode(hash('sha256', DesignBoardContentService::SITE_NAVIGATION_SCRIPT, true)) . "'",
+            DesignBoardContentService::getSiteNavigationScriptSource()
+        );
+        $this->assertStringEndsWith('</script>', DesignBoardContentService::addSiteNavigationScript('<p>no body</p>'));
+    }
 }

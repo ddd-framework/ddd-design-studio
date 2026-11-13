@@ -27,6 +27,42 @@ use DDD\Infrastructure\Services\Service;
  */
 class DesignBoardContentService extends Service
 {
+    /** @var string The site view's navigation script (addSiteNavigationScript()); its hash is the CSP source */
+    public const string SITE_NAVIGATION_SCRIPT = <<<'JS'
+(function () {
+  var post = function (message) { message.source = 'design-studio-site'; window.parent.postMessage(message, '*'); };
+  document.addEventListener('click', function (event) {
+    var anchor = event.target && event.target.closest ? event.target.closest('a[href]') : null;
+    if (!anchor) return;
+    event.preventDefault();
+    var href = anchor.getAttribute('href') || '';
+    if (href.charAt(0) === '#') {
+      var target = href.length > 1 ? document.getElementById(decodeURIComponent(href.slice(1))) : null;
+      if (target) target.scrollIntoView({ behavior: 'smooth' });
+      else window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+    post({ type: 'navigate', href: href });
+  }, true);
+  document.addEventListener('submit', function (event) { event.preventDefault(); }, true);
+  var isScrollQueued = false;
+  window.addEventListener('scroll', function () {
+    if (isScrollQueued) return;
+    isScrollQueued = true;
+    window.requestAnimationFrame(function () {
+      isScrollQueued = false;
+      post({ type: 'scroll', top: Math.round(window.scrollY) });
+    });
+  }, { passive: true });
+  var reportHeight = function () {
+    post({ type: 'height', height: Math.ceil(Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0)) });
+  };
+  if (window.ResizeObserver) new ResizeObserver(reportHeight).observe(document.documentElement);
+  window.addEventListener('load', reportHeight);
+  reportHeight();
+})();
+JS;
+
     /** @var string Scope claim of a content token */
     public const string CONTENT_TOKEN_SCOPE = 'designStudioContent';
 
@@ -166,6 +202,37 @@ class DesignBoardContentService extends Service
             $cache->set($cacheKey, $sandboxHtml, static::THEMED_HTML_CACHE_SECONDS);
         }
         return $sandboxHtml;
+    }
+
+    /**
+     * The site view's board: the sandboxed HTML (getBoardHtmlForSandbox()) with the studio's navigation script at the
+     * end. The script is the only one the page runs (the board's own scripts are removed; the CSP admits this script
+     * by its hash, so inline handlers and `javascript:` URLs stay blocked). It runs in an opaque origin and only tells
+     * the parent page, by `postMessage` with `source: 'design-studio-site'`:
+     * - `navigate` with the `href` of a clicked link (the parent maps `/path` and `board:<file>` to a page; external
+     *   links are not followed: every click is prevented; a `#fragment` link scrolls the page itself),
+     * - `scroll` with the page's scroll position (the parent moves the comment pins with the page),
+     * - `height` with the page height whenever it changes.
+     * The page keeps the device's viewport height and scrolls itself, so `vh` units behave as on the device.
+     * Forms are not submitted.
+     * @param string $sandboxHtml
+     * @return string
+     */
+    public static function addSiteNavigationScript(string $sandboxHtml): string
+    {
+        $scriptElement = '<script>' . static::SITE_NAVIGATION_SCRIPT . '</script>';
+        $bodyEndPosition = strripos($sandboxHtml, '</body>');
+        return $bodyEndPosition === false
+            ? $sandboxHtml . $scriptElement
+            : substr($sandboxHtml, 0, $bodyEndPosition) . $scriptElement . substr($sandboxHtml, $bodyEndPosition);
+    }
+
+    /**
+     * @return string the CSP source of the navigation script (`'sha256-…'`)
+     */
+    public static function getSiteNavigationScriptSource(): string
+    {
+        return "'sha256-" . base64_encode(hash('sha256', static::SITE_NAVIGATION_SCRIPT, true)) . "'";
     }
 
     /**

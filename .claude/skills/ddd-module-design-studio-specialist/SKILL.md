@@ -1,9 +1,9 @@
 ---
 name: ddd-module-design-studio-specialist
-description: "Installs, wires and operates the ddd-design-studio module, a review studio for a checkout's HTML design boards. Covers the directory model (canvas.json, board files, git blob hash), assets-folder images, responsive boards in device frames (devices config, fullPage renderer), config DesignStudio projects, api, content, statuses, retention, storage, renderer, thin controllers on the three traits, the token-guarded content route, object storage, the optional thumbnail renderer and worker, binding the access policy and theme provider, board codes (APP ONB-W2) and code links, and app:design-studio:show, comments, comments-poll, decisions, status, theme, thumbnails, prune. Use when installing the studio, adding a canvas, putting photos into boards, marking a board responsive, linking to a board, answering design comments as an agent, setting a board status, requesting thumbnails, or debugging an empty canvas, a missing board or image, No handler for message, missing thumbnails or a 404 on board content."
+description: "Installs, wires and operates ddd-design-studio, a review studio for a checkout's HTML design boards. Covers canvas.json, board files and versions, assets-folder images, responsive boards in device frames (devices config, fullPage renderer), the site view (routes), the DesignStudio config files, thin controllers on the three traits, the token-guarded content route, object storage, the optional thumbnail renderer and worker, binding the access policy and theme provider, board codes (APP ONB-W2) and code links, and app:design-studio:show, comments, comments-poll, decisions, status, theme, thumbnails, prune. Use when installing the studio, adding a canvas, putting photos into boards, marking a board responsive, opening a canvas as a website, linking to a board, answering design comments as an agent, setting a board status, requesting thumbnails, or debugging an empty canvas, a missing board or image, No handler for message, missing thumbnails or a 404 on board content."
 metadata:
   author: mgamadeus
-  version: "0.4.1"
+  version: "0.5.0"
   module: mgamadeus/ddd-design-studio
 ---
 
@@ -175,6 +175,15 @@ names the board's page in the site view.
   `DesignStudioComments`, no index) and shows at that width only. An agent pins on a responsive board with
   `app:design-studio:comments <project> <canvas> --new="…" --board=home.html --x=120 --y=640 --viewport=393x852
   --device=iphone-16`; the design reference and the console print `viewport 393x852 iphone-16`.
+
+## Site view (a canvas as a website)
+
+Boards with a route are pages; `DesignStudioSiteScreen` shows them one at a time in a device, one URL per page
+(`paths.site(projectKey, canvasKey, route)` in the application's provider; without it no "Open as website"). Links in a
+page: `/path`, relative `path` and `board:<file>` open that page, `#x` scrolls, external links are not followed, a link
+without a page says "No page for /x". Write board links as such paths so the site navigates; one board per route. The
+board route's `site=1` adds the studio's navigation script (CSP hash, `sandbox allow-scripts`). Comments work there as on
+the canvas.
 
 ## Images in boards: `assets/`
 

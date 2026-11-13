@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.5.0
+
+**Site view: a canvas as a clickable website.**
+
+- `DesignStudioSiteScreen` (npm): the boards with a `route` are the pages, one at a time, full width in a device
+  (picker, rotation, free width, device frame), one URL per page through the new optional `paths.site(projectKey,
+  canvasKey, route)` — shareable, browser back / forward. The canvas toolbar gets "Open as website" (at the selected
+  board's page, else `/`) when the application sets `paths.site`.
+- Links inside a page: `/path`, relative `path` and `board:<file>` open that page, `#anchor` scrolls, external links
+  are not followed, a link without a page says so (texts `sitePageMissing`, `siteExternalLink`, `openAsWebsite`).
+- Board route `?site=1`: the sandboxed board with the studio's navigation script, admitted by its hash
+  (`script-src 'sha256-…'`, `sandbox allow-scripts`, opaque origin); the board's own scripts stay removed, inline
+  handlers blocked. It reports link clicks, the scroll position and the page height by `postMessage`.
+- Comments in the site view: pins placed and shown on the page (viewport and page position as on the canvas), the
+  same threads.
+- A route names one board: a second board with the same route loses it, with a canvas warning.
+
 ## 0.4.1
 
 - **Canvas previews.** Each thumbnail gets a preview copy, at most 640 px wide, WebP (JPEG where Imagick has no WebP),

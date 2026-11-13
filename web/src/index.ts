@@ -46,4 +46,5 @@ export type * from './provider/types';
 export { DesignStudioOverviewScreen, type DesignStudioOverviewScreenProps } from './screens/DesignStudioOverviewScreen';
 export { DesignStudioProjectScreen, type DesignStudioProjectScreenProps } from './screens/DesignStudioProjectScreen';
 export { DesignStudioReviewsScreen, type DesignStudioReviewsScreenProps } from './screens/DesignStudioReviewsScreen';
+export { DesignStudioSiteScreen, type DesignStudioSiteScreenProps } from './screens/DesignStudioSiteScreen';
 export { cx } from './utils/cx';

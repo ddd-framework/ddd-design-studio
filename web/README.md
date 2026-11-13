@@ -116,7 +116,7 @@ Pass one stable object (a module constant) to `DesignStudioProvider`. Entries na
 | `router.useSearchParamsWriter` | `() => (updates) => void` | replaces search parameters of the current page: no history entry, no scroll jump, other parameters kept, same-tick writes merged; `null` removes one |
 | `router.useUrlState` | `(keys, { stateId, debounceMs, uncounted }) => { values, debounced, setValue }` | the canvas state (`q`, `section`, `status`, `theme`, `mode`, `vp`) in the URL, restored from what the application remembered under `stateId` when the URL has none of the keys |
 | `router.useNavigate` (optional) | `() => (href) => void` | client navigation to an in-app path (query allowed, with a history entry); the overview uses it to open a board code; without it the overview shows a link to click |
-| `paths` | `overview()`, `project(projectKey)`, `canvas(projectKey, canvasKey)` | in-app paths of the studio's pages |
+| `paths` | `overview()`, `project(projectKey)`, `canvas(projectKey, canvasKey)`, optional `site(projectKey, canvasKey, route)` | in-app paths of the studio's pages |
 | `components` | `DesignStudioComponents` | UI slots: `Button`, `Badge`, `Card`, `CardHeader`, `CardTitle`, `CardContent`, `Skeleton`, `Checkbox`, `Label`, `Textarea`, `Dialog`, `DialogContent`, `DialogTitle`, `DialogDescription`, `Popover`, `PopoverTrigger`, `PopoverContent`, `Tooltip`, `TooltipTrigger`, `TooltipContent`, `DropdownMenu`, `DropdownMenuTrigger`, `DropdownMenuContent`, `DropdownMenuItem`, `DropdownMenuSeparator`, `Combobox`, `SearchField`, `QuickFilterPills`, `StatusBadge`, `PageHeader`, `StatusCallout`, `CardGrid`, `PageSections` — each typed with only the props the studio passes ([`src/provider/types.ts`](src/provider/types.ts), interface `DesignStudioComponents`) |
 | `notify` | `success(message)`, `error(message)`, `info(message, { id, action })` | toasts |
 | `formatDateTime` | `(value) => string` | a backend date-time for the viewer |
@@ -153,6 +153,9 @@ Inside the package, components read it with `useDesignStudio()` or the narrower 
 | `themeWithoutDarkMode` | `This theme has no dark mode` |
 | `thumbnailMissing` | `No thumbnail yet` |
 | `thumbnailLoading` | `Loading…` |
+| `sitePageMissing(path)` | `No page for <path>` |
+| `siteExternalLink(href)` | `External link, not followed: <href>` |
+| `openAsWebsite` | `Open as website` |
 | `referenceNotePlaceholder` | `What should change? (optional, goes into the reference)` |
 | `boardCodeNotFound(code)` | `No board has the code <code>` |
 | `boardLinkCopied(code)` | `Link to <code> copied` |
@@ -177,6 +180,7 @@ The package has no router. The application creates one page per screen and tells
 | overview of the projects | `DesignStudioOverviewScreen` | `overview()` |
 | one project and its canvases | `DesignStudioProjectScreen` (`projectKey`) | `project(projectKey)` |
 | one canvas | `DesignStudioCanvasScreen` (`projectKey`, `canvasKey`) from `/canvas` | `canvas(projectKey, canvasKey)` |
+| a canvas as a website (optional) | `DesignStudioSiteScreen` (`projectKey`, `canvasKey`, `route`: the rest of the path, e.g. `/pricing`) | `site(projectKey, canvasKey, route)`; without it the canvas offers no "Open as website" |
 | reviews (optional; an empty state in this version) | `DesignStudioReviewsScreen` | none: linked by the application's own navigation |
 
 The canvas page keeps its state in search parameters: `board` (the focus view), `q`, `section`, `status`, `theme`,
@@ -301,6 +305,7 @@ The package has no router. The application creates one page per screen and tells
 | overview of the projects | `DesignStudioOverviewScreen` | `overview()` |
 | one project and its canvases | `DesignStudioProjectScreen` (`projectKey`) | `project(projectKey)` |
 | one canvas | `DesignStudioCanvasScreen` (`projectKey`, `canvasKey`) from `/canvas` | `canvas(projectKey, canvasKey)` |
+| a canvas as a website (optional) | `DesignStudioSiteScreen` (`projectKey`, `canvasKey`, `route`: the rest of the path, e.g. `/pricing`) | `site(projectKey, canvasKey, route)`; without it the canvas offers no "Open as website" |
 | reviews (optional; an empty state in this version) | `DesignStudioReviewsScreen` | none: linked by the application's own navigation |
 
 The canvas page keeps its state in search parameters: `board` (the focus view), `q`, `section`, `status`, `theme`,
@@ -359,6 +364,9 @@ const ENVIRONMENT: DesignStudioEnvironment = {
     overview: () => '/design',
     project: projectKey => `/design/${projectKey}`,
     canvas: (projectKey, canvasKey) => `/design/${projectKey}/canvases/${canvasKey}`,
+    // optional: the site view; the page `/design/[projectKey]/canvases/[canvasKey]/site/[[...route]]` passes
+    // `'/' + (route ?? []).join('/')` to DesignStudioSiteScreen
+    site: (projectKey, canvasKey, route) => `/design/${projectKey}/canvases/${canvasKey}/site${route === '/' ? '' : route}`,
   },
   components: { Button, Badge, Card /* … every slot of DesignStudioComponents */ },
   notify: { success: toast.success, error: toast.error, info: toast.info },

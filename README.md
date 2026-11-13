@@ -438,6 +438,24 @@ A responsive board is one file shown at several viewport widths:
   photographs the whole page. The frame width is part of the thumbnail key; a fixed board keeps its key. The
   renderer contract: [`renderer/README.md`](renderer/README.md).
 
+### Site view: a canvas as a clickable website
+
+The boards with a route are the pages of a website; `DesignStudioSiteScreen` (npm package, route `site(…)` of the
+application's paths) shows one page at a time, full width in a chosen device (the device picker, rotation, free width
+and device frame of the focus view), with its own URL per page (`…/site/pricing`: shareable, browser back / forward).
+
+- **Links.** A click on `href="/pricing"`, a relative `href="pricing"`, or `href="board:pricing.html"` opens that
+  board's page; `href="#faq"` scrolls the page; a link without a page shows "No page for /x"; external links
+  (`https:`, `mailto:`, `//…`) are not followed. Forms are not submitted.
+- **How.** The page is the board route with `site=1`: the board's own scripts removed, the studio's navigation
+  script added, admitted by its hash in the CSP (`script-src 'sha256-…'`, `sandbox allow-scripts`, no same origin): it
+  reports clicked links, the scroll position and the page height to the studio page by `postMessage`; inline handlers
+  and `javascript:` URLs stay blocked. The page keeps the device's viewport height and scrolls itself.
+- **Comments.** Pins are placed and shown on the page as on the canvas (page positions in the viewport they were
+  placed in, the same threads); they move with the page's scroll position.
+- **Routes.** `"route"` in canvas.json or `<meta name="design-route">`, one board per route (a second board with the
+  same route loses it, with a warning). `/` is the start page; without it the site opens at the first page.
+
 ### Images: the `assets/` folder
 
 A board can load images from `<canvas folder>/assets/` instead of embedding them as data URIs, so a photo used by many
@@ -503,7 +521,7 @@ Comments written through the API have the author kind `USER`. A comment text has
 
 | Verb | Path | Purpose |
 |---|---|---|
-| GET | `/boards/{projectKey}/{canvasKey}/{boardKey}` | the board HTML for the sandboxed iframe; query `token` (required), `contentHash`, `theme` |
+| GET | `/boards/{projectKey}/{canvasKey}/{boardKey}` | the board HTML for the sandboxed iframe; query `token` (required), `contentHash`, `assetsHash`, `theme`, `site=1` (the site view: with the navigation script) |
 | GET | `/thumbnails/{thumbnailKey}` | a thumbnail; query `token` (required), `size` (`full` PNG, `small` PNG, `preview` WebP / JPEG) |
 | GET | `/assets/{projectKey}/{canvasKey}/{assetPath}` | an image of the canvas' `assets/` folder; query `token` (required), `v` (the file's blob hash: the checkout's file when it matches, else the copy kept with a commented version) |
 

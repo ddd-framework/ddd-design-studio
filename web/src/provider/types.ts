@@ -76,6 +76,11 @@ export interface DesignStudioPaths {
   overview: () => string;
   project: (projectKey: string) => string;
   canvas: (projectKey: string, canvasKey: string) => string;
+  /**
+   * Optional: the site view of a canvas at a page (`route` = `/`, `/pricing`; the application maps the rest of the
+   * path to `DesignStudioSiteScreen`'s `route`). Without it the canvas offers no "Open as website".
+   */
+  site?: (projectKey: string, canvasKey: string, route: string) => string;
 }
 
 // --- statuses -------------------------------------------------------------------------------------------------------
@@ -317,6 +322,12 @@ export interface DesignStudioTexts {
   thumbnailMissing: string;
   /** Shown on a board card while its picture loads. */
   thumbnailLoading: string;
+  /** Site view: a clicked link names no page (`path` = the link's path). */
+  sitePageMissing: (path: string) => string;
+  /** Site view: a clicked link leads outside the design (not followed). */
+  siteExternalLink: (href: string) => string;
+  /** Canvas toolbar: opens the canvas as a clickable website. */
+  openAsWebsite: string;
   /** Placeholder of the note field in the focus view's reference panel. */
   referenceNotePlaceholder: string;
   /** Toast of a code link (`?code=`) or a pasted code that names no board (`code` = what was given). */

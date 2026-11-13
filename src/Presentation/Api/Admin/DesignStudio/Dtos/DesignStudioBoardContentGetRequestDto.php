@@ -43,6 +43,13 @@ class DesignStudioBoardContentGetRequestDto extends RequestDto
     #[Length(max: 40)]
     public ?string $assetsHash = null;
 
+    /**
+     * @var bool|null true: the board for the site view — with the studio's navigation script (link clicks, anchors and
+     *      the page height are reported to the parent page); omitted = the board as on the canvas, without any script
+     */
+    #[Parameter(in: Parameter::QUERY, required: false)]
+    public ?bool $site = null;
+
     /** @var string|null Theme reference `<themeId>[:<mode>]`; omitted = no theme */
     #[Parameter(in: Parameter::QUERY, required: false)]
     #[Length(max: 255)]

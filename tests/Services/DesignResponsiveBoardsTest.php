@@ -235,4 +235,19 @@ class DesignResponsiveBoardsTest extends TestCase
         $this->assertSame('/content/thumbnails/' . $phoneThumbnail->thumbnailKey . '?token=t', $frames[1]->thumbnailUrl);
         $this->assertSame(2400, $frames[1]->pageHeight);
     }
+
+    public function testARouteNamesOnePage(): void
+    {
+        $canvasFolder = $this->projectRootDirectory . '/design/canvas';
+        file_put_contents($canvasFolder . '/a.html', '<p>a</p>');
+        file_put_contents($canvasFolder . '/b.html', '<p>b</p>');
+        file_put_contents($canvasFolder . '/canvas.json', json_encode(['boards' => [
+            'a.html' => ['x' => 0, 'y' => 0, 'route' => '/pricing'],
+            'b.html' => ['x' => 0, 'y' => 500, 'route' => '/pricing/'],
+        ]]));
+        $designDirectoryCanvas = (new FixedRootDesignDirectoryReaderService($this->projectRootDirectory))->readCanvas($this->createCanvasDefinition());
+        $routes = array_map(static fn($board) => $board->route, $designDirectoryCanvas->boards->getElements());
+        $this->assertSame(['/pricing', null], $routes);
+        $this->assertContains('Route /pricing of board b.html is taken by a.html', $designDirectoryCanvas->warnings);
+    }
 }
