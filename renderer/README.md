@@ -40,6 +40,13 @@ Request (JSON body):
 }
 ```
 
+Optional `"fullPage": true` (sent by the studio for the device frames of a responsive board, never for a fixed board):
+the page is laid out at `width` × `height` (the device viewport) and photographed as a whole — the picture's height is
+the page height (`document.documentElement.scrollHeight`), at least `height` and at most 20000; `width` stays. Each
+image's `width` / `height` in the response are the picture's size. Without the field (or `false`) the picture is exactly
+`width` × `height`, as before. A renderer that does not know the field renders `width` × `height`: the frame then shows
+one screen of the page.
+
 The board is loaded **once**; each theme is applied by replacing the `<style data-design-theme>` element (first in
 `<head>`, exactly where the studio's content route injects it) — no reload. `css` may also be plain CSS (it is
 wrapped). An empty `themes` list renders the board as authored.

@@ -59,12 +59,62 @@ class DesignStudioThumbnailsService extends EntitiesService
      * @param string $contentHash content hash of the board file
      * @param string $themeHash DesignThemeProviderService::computeThemeHash()
      * @param string|null $assetsHash version of the asset files the board shows (DesignDirectoryBoard::$assetsHash)
+     * @param int|null $frameWidth the viewport width a responsive board is rendered at as a whole page; null = a fixed
+     *                             board at its own size
      * @return string the key of the board version's thumbnail in that look
      */
-    public function computeThumbnailKey(string $contentHash, string $themeHash, ?string $assetsHash = null): string
+    public function computeThumbnailKey(string $contentHash, string $themeHash, ?string $assetsHash = null, ?int $frameWidth = null): string
     {
-        // a board without assets keeps the key it had before assets existed
-        return hash('sha256', $contentHash . ':' . $themeHash . ':' . $this->getRendererVersion() . ($assetsHash !== null ? ':' . $assetsHash : ''));
+        // a board without assets keeps the key it had before assets existed, a fixed board the key it had before frames
+        return hash('sha256', $contentHash . ':' . $themeHash . ':' . $this->getRendererVersion()
+            . ($assetsHash !== null ? ':' . $assetsHash : '')
+            . ($frameWidth !== null ? ':frame-' . $frameWidth . ':full-page' : ''));
+    }
+
+    /**
+     * @param DesignDirectoryBoard $designDirectoryBoard a board or a render target
+     * @param string $themeHash
+     * @return string|null the thumbnail key of the board (a render target: of its device frame); null without content
+     */
+    public function computeThumbnailKeyForBoard(DesignDirectoryBoard $designDirectoryBoard, string $themeHash): ?string
+    {
+        if ($designDirectoryBoard->contentHash === null) {
+            return null;
+        }
+        return $this->computeThumbnailKey($designDirectoryBoard->contentHash, $themeHash, $designDirectoryBoard->assetsHash, $designDirectoryBoard->getFrameWidth());
+    }
+
+    /**
+     * The pictures to render for boards: a fixed board is one target at its own size, a responsive board one target
+     * per device frame (width and height = the device's viewport, rendered as a whole page). Targets stay as they are.
+     * @param DesignDirectoryBoards $designDirectoryBoards
+     * @return DesignDirectoryBoards
+     */
+    public function expandRenderTargets(DesignDirectoryBoards $designDirectoryBoards): DesignDirectoryBoards
+    {
+        /** @var DesignDevicesService $designDevicesService */
+        $designDevicesService = DDDService::instance()->getService(DesignDevicesService::class);
+        $designDevices = null;
+        $renderTargets = new DesignDirectoryBoards();
+        foreach ($designDirectoryBoards->getElements() as $designDirectoryBoard) {
+            if (!$designDirectoryBoard->isResponsive || $designDirectoryBoard->frameDeviceKey !== null) {
+                $renderTargets->add($designDirectoryBoard);
+                continue;
+            }
+            $designDevices ??= $designDevicesService->getDevices();
+            foreach ($designDirectoryBoard->frameDeviceKeys as $frameDeviceKey) {
+                $designDevice = $designDevices->getByDeviceKey($frameDeviceKey);
+                if (!$designDevice) {
+                    continue;
+                }
+                $renderTarget = clone $designDirectoryBoard;
+                $renderTarget->frameDeviceKey = $frameDeviceKey;
+                $renderTarget->width = $designDevice->width;
+                $renderTarget->height = $designDevice->height;
+                $renderTargets->add($renderTarget);
+            }
+        }
+        return $renderTargets;
     }
 
     /**
@@ -97,9 +147,10 @@ class DesignStudioThumbnailsService extends EntitiesService
     public function findForBoards(DesignDirectoryBoards $designDirectoryBoards, string $themeHash): DesignStudioThumbnails
     {
         $thumbnailKeys = [];
-        foreach ($designDirectoryBoards->getElements() as $designDirectoryBoard) {
-            if ($designDirectoryBoard->contentHash !== null) {
-                $thumbnailKeys[] = $this->computeThumbnailKey($designDirectoryBoard->contentHash, $themeHash, $designDirectoryBoard->assetsHash);
+        foreach ($this->expandRenderTargets($designDirectoryBoards)->getElements() as $renderTarget) {
+            $thumbnailKey = $this->computeThumbnailKeyForBoard($renderTarget, $themeHash);
+            if ($thumbnailKey !== null) {
+                $thumbnailKeys[] = $thumbnailKey;
             }
         }
         if (!$thumbnailKeys) {
@@ -118,7 +169,8 @@ class DesignStudioThumbnailsService extends EntitiesService
      * @param DesignDirectoryBoards $designDirectoryBoards boards of the checkout
      * @param string $themeHash
      * @param string[] $priorityBoardKeys boards listed first (the ones on screen)
-     * @return DesignDirectoryBoards the boards whose version has no thumbnail in the look, priority boards first
+     * @return DesignDirectoryBoards the render targets (expandRenderTargets()) whose version has no thumbnail in the
+     *                              look, priority boards first
      * @throws BadRequestException
      * @throws InternalErrorException
      * @throws InvalidArgumentException
@@ -129,7 +181,8 @@ class DesignStudioThumbnailsService extends EntitiesService
         string $themeHash,
         array $priorityBoardKeys = []
     ): DesignDirectoryBoards {
-        $designStudioThumbnails = $this->findForBoards($designDirectoryBoards, $themeHash);
+        $renderTargets = $this->expandRenderTargets($designDirectoryBoards);
+        $designStudioThumbnails = $this->findForBoards($renderTargets, $themeHash);
         $existingThumbnailKeys = [];
         foreach ($designStudioThumbnails->getElements() as $designStudioThumbnail) {
             $existingThumbnailKeys[(string)$designStudioThumbnail->thumbnailKey] = true;
@@ -137,22 +190,21 @@ class DesignStudioThumbnailsService extends EntitiesService
         $priorityPositions = array_flip(array_values($priorityBoardKeys));
         $priorityBoards = [];
         $otherBoards = [];
-        foreach ($designDirectoryBoards->getElements() as $designDirectoryBoard) {
-            if (
-                $designDirectoryBoard->contentHash === null
-                || isset($existingThumbnailKeys[$this->computeThumbnailKey($designDirectoryBoard->contentHash, $themeHash, $designDirectoryBoard->assetsHash)])
-            ) {
+        foreach ($renderTargets->getElements() as $designDirectoryBoard) {
+            $thumbnailKey = $this->computeThumbnailKeyForBoard($designDirectoryBoard, $themeHash);
+            if ($thumbnailKey === null || isset($existingThumbnailKeys[$thumbnailKey])) {
                 continue;
             }
             if (isset($priorityPositions[$designDirectoryBoard->boardKey])) {
-                $priorityBoards[$priorityPositions[$designDirectoryBoard->boardKey]] = $designDirectoryBoard;
+                // the frames of a responsive board share its position
+                $priorityBoards[$priorityPositions[$designDirectoryBoard->boardKey]][] = $designDirectoryBoard;
             } else {
                 $otherBoards[] = $designDirectoryBoard;
             }
         }
         ksort($priorityBoards);
         $boardsWithoutThumbnail = new DesignDirectoryBoards();
-        foreach ([...$priorityBoards, ...$otherBoards] as $designDirectoryBoard) {
+        foreach ([...array_merge(...array_values($priorityBoards)), ...$otherBoards] as $designDirectoryBoard) {
             $boardsWithoutThumbnail->add($designDirectoryBoard);
         }
         return $boardsWithoutThumbnail;
@@ -174,7 +226,7 @@ class DesignStudioThumbnailsService extends EntitiesService
      */
     public function storeThumbnail(DesignDirectoryBoard $designDirectoryBoard, string $themeHash, string $png): ?DesignStudioThumbnail
     {
-        $thumbnailKey = $this->computeThumbnailKey((string)$designDirectoryBoard->contentHash, $themeHash, $designDirectoryBoard->assetsHash);
+        $thumbnailKey = $this->computeThumbnailKey((string)$designDirectoryBoard->contentHash, $themeHash, $designDirectoryBoard->assetsHash, $designDirectoryBoard->getFrameWidth());
         $existingDesignStudioThumbnail = $this->findByThumbnailKey($thumbnailKey);
         if ($existingDesignStudioThumbnail) {
             return $existingDesignStudioThumbnail;

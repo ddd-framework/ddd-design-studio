@@ -1,9 +1,19 @@
 'use client';
 
-import { ChevronLeft, ChevronRight, ClipboardCopy, MapPin, MapPinPlus, SquareDashedMousePointer, X } from 'lucide-react';
-import { type MouseEvent, type PointerEvent, useEffect, useState } from 'react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  ClipboardCopy,
+  MapPin,
+  MapPinPlus,
+  RotateCw,
+  Smartphone,
+  SquareDashedMousePointer,
+  X,
+} from 'lucide-react';
+import { type MouseEvent, type PointerEvent, useEffect, useRef, useState } from 'react';
 
-import type { DesignStudioBoardView } from '../api/types';
+import type { DesignDevice, DesignStudioBoardView } from '../api/types';
 import { useDesignStudio, useDesignStudioTexts } from '../provider/DesignStudioProvider';
 import { cx } from '../utils/cx';
 import { BoardComments, type BoardPin, type CommentThread } from './BoardComments';
@@ -11,6 +21,17 @@ import { designContentUrl } from './BoardNode';
 import { shortContentHash } from './canvasLiveUpdate';
 import type { BoardRegion } from './designReference';
 import { BoardStatusChips } from './BoardStatusChips';
+import {
+  type DeviceViewport,
+  framesOf,
+  isPinInViewport,
+  isResponsiveBoard,
+  pageHeightAtWidth,
+  rotateViewport,
+  viewportLabel,
+  viewportOfDevice,
+  viewportWithWidth,
+} from './deviceViewport';
 import { useStableContentUrl } from './stableContentUrl';
 import { useCheckedContentUrl } from './useCheckedContentUrl';
 
@@ -30,6 +51,12 @@ export interface BoardFocusViewProps {
   writesAllowed: boolean;
   /** Present mode: label of the section being presented. */
   presentLabel?: string | null;
+  /** Device presets of the canvas (responsive boards). */
+  devices?: readonly DesignDevice[];
+  /** The viewport a responsive board is shown in (kept while stepping through boards); null for a fixed board. */
+  viewport?: DeviceViewport | null;
+  /** Device picked, rotated or width dragged. */
+  onViewportChange?: (viewport: DeviceViewport) => void;
   onClose: () => void;
   onPrevious: () => void;
   onNext: () => void;
@@ -41,7 +68,9 @@ export interface BoardFocusViewProps {
 }
 
 /**
- * One board large: the live sandboxed HTML at its native width in a device frame, scrolling through its full length;
+ * One board large: the live sandboxed HTML at its native width in a device frame, scrolling through its full length
+ * (a responsive board: in the chosen viewport — device presets, rotation, a free width by the drag handle, scaled down
+ * when wider than the screen; pins are shown in the viewport width they were placed in);
  * prev / next through the canvas order (buttons and ← / →); comment pins on the board (“Add pin”, then a click on the
  * spot) and the board's comment threads and status beside it.
  */
@@ -55,6 +84,9 @@ export const BoardFocusView = ({
   threads,
   writesAllowed,
   presentLabel,
+  devices = [],
+  viewport = null,
+  onViewportChange,
   onClose,
   onPrevious,
   onNext,
@@ -112,13 +144,40 @@ export const BoardFocusView = ({
     return () => window.removeEventListener('keydown', onKeyDown);
   });
 
-  const width = board?.width ?? 390;
-  const height = board?.height ?? 844;
+  const isResponsive = isResponsiveBoard(board) && viewport !== null;
+  const [showsDeviceFrame, setShowsDeviceFrame] = useState(true);
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const [stageWidth, setStageWidth] = useState(0);
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => setStageWidth(stage.clientWidth));
+    observer.observe(stage);
+    setStageWidth(stage.clientWidth);
+    return () => observer.disconnect();
+  }, [board]);
+  const width = isResponsive ? viewport.width : (board?.width ?? 390);
+  const height = isResponsive && board ? pageHeightAtWidth(board, viewport.width, viewport.height) : (board?.height ?? 844);
+  const screenHeight = isResponsive ? viewport.height : Math.min(height, DEVICE_SCREEN_HEIGHT);
+  const bezelPadding = !isResponsive || showsDeviceFrame ? 24 : 0;
+  // a viewport wider than the stage is scaled down; positions stay page pixels (divided by the scale)
+  const scale = isResponsive && stageWidth > 0 ? Math.min(1, (stageWidth - 48) / (width + bezelPadding)) : 1;
+  const frameOfWidth = isResponsive ? framesOf(board).find(frame => frame.width === width) : undefined;
   // the iframe mounts only after the HTML answered 2xx: an error keeps the thumbnail, retried in the background
   // stable per content: a rotated content token does not reload the open board
   const htmlUrl = useCheckedContentUrl(useStableContentUrl(designContentUrl(apiBaseUrl, board?.htmlUrl), true));
-  const thumbnailUrl = useStableContentUrl(designContentUrl(apiBaseUrl, board?.thumbnailUrl), true);
-  const pinnedThreads = threads.filter(thread => thread.pinNumber !== null && (showResolved || !thread.root.isResolved));
+  const thumbnailUrl = useStableContentUrl(
+    designContentUrl(apiBaseUrl, isResponsive ? frameOfWidth?.thumbnailUrl : board?.thumbnailUrl),
+    true
+  );
+  const pinnedThreads = threads.filter(
+    thread =>
+      thread.pinNumber !== null &&
+      (showResolved || !thread.root.isResolved) &&
+      isPinInViewport(thread.root, isResponsive ? viewport : null)
+  );
+  const hiddenPinCount = threads.filter(thread => thread.pinNumber !== null && !thread.root.isResolved).length -
+    pinnedThreads.filter(thread => !thread.root.isResolved).length;
 
   const copyReference = () => {
     onCopyReference({ region, note: referenceNote });
@@ -131,8 +190,8 @@ export const BoardFocusView = ({
   const boardPointOf = (event: PointerEvent<HTMLButtonElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     return {
-      x: Math.max(0, Math.min(width, event.clientX - rect.left)),
-      y: Math.max(0, Math.min(height, event.clientY - rect.top)),
+      x: Math.max(0, Math.min(width, (event.clientX - rect.left) / scale)),
+      y: Math.max(0, Math.min(height, (event.clientY - rect.top) / scale)),
     };
   };
   const startRegion = (event: PointerEvent<HTMLButtonElement>) => {
@@ -170,7 +229,11 @@ export const BoardFocusView = ({
 
   const placePin = (event: MouseEvent<HTMLButtonElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
-    setPendingPin({ x: Math.round(event.clientX - rect.left), y: Math.round(event.clientY - rect.top) });
+    setPendingPin({
+      x: Math.round((event.clientX - rect.left) / scale),
+      y: Math.round((event.clientY - rect.top) / scale),
+      viewport: isResponsive ? viewport : null,
+    });
     setIsPlacingPin(false);
   };
 
@@ -212,11 +275,37 @@ export const BoardFocusView = ({
               </div>
             </header>
             <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-              <div className="flex min-h-0 flex-1 items-start justify-center overflow-auto bg-tint p-6">
-                <div className="rounded-[56px] bg-foreground p-3 shadow-surface-raised">
+              <div className="flex min-h-0 flex-1 flex-col bg-tint">
+                {isResponsive && (
+                  <ViewportToolbar
+                    devices={devices}
+                    viewport={viewport}
+                    hiddenPinCount={hiddenPinCount}
+                    showsDeviceFrame={showsDeviceFrame}
+                    onShowsDeviceFrameChange={setShowsDeviceFrame}
+                    onViewportChange={nextViewport => onViewportChange?.(nextViewport)}
+                  />
+                )}
+              <div ref={stageRef} className="flex min-h-0 flex-1 items-start justify-center overflow-auto p-6">
+                <div style={{ width: (width + bezelPadding) * scale, height: (screenHeight + bezelPadding) * scale }}>
+                <div
+                  className={cx(
+                    'relative origin-top-left',
+                    (!isResponsive || showsDeviceFrame) && 'bg-foreground p-3 shadow-surface-raised',
+                    !isResponsive || viewport.width < 600 ? 'rounded-[56px]' : 'rounded-[28px]'
+                  )}
+                  style={{ transform: scale !== 1 ? `scale(${scale})` : undefined, width: width + bezelPadding }}
+                >
                   <div
-                    className="relative overflow-y-auto overflow-x-hidden rounded-[44px] bg-card"
-                    style={{ width, height: Math.min(height, DEVICE_SCREEN_HEIGHT) }}
+                    className={cx(
+                      'relative overflow-y-auto overflow-x-hidden bg-card',
+                      !isResponsive || showsDeviceFrame
+                        ? !isResponsive || viewport.width < 600
+                          ? 'rounded-[44px]'
+                          : 'rounded-[18px]'
+                        : 'rounded-md ring-1 ring-foreground/10'
+                    )}
+                    style={{ width, height: screenHeight }}
                   >
                     <div className="relative" style={{ width, height }}>
                       {thumbnailUrl && (
@@ -302,7 +391,16 @@ export const BoardFocusView = ({
                       )}
                     </div>
                   </div>
+                  {isResponsive && (
+                    <WidthDragHandle
+                      scale={scale}
+                      width={width}
+                      onWidthChange={nextWidth => onViewportChange?.(viewportWithWidth(viewport, nextWidth))}
+                    />
+                  )}
                 </div>
+                </div>
+              </div>
               </div>
               <aside className="flex min-h-0 w-full flex-col border-t border-border lg:w-[400px] lg:border-t-0 lg:border-l">
                 <div className="space-y-2 border-b border-border px-5 py-4">
@@ -368,6 +466,7 @@ export const BoardFocusView = ({
                     onShowResolvedChange={setShowResolved}
                     pinHint="“Add pin” marks a spot on the board"
                     onCopyThreadReference={onCopyThreadReference}
+                    onSelectViewport={isResponsive ? onViewportChange : undefined}
                   />
                 </div>
               </aside>
@@ -376,5 +475,107 @@ export const BoardFocusView = ({
         )}
       </DialogContent>
     </Dialog>
+  );
+};
+
+interface ViewportToolbarProps {
+  devices: readonly DesignDevice[];
+  viewport: DeviceViewport;
+  /** Open pins placed in other viewport widths (not shown in this one). */
+  hiddenPinCount: number;
+  showsDeviceFrame: boolean;
+  onShowsDeviceFrameChange: (showsDeviceFrame: boolean) => void;
+  onViewportChange: (viewport: DeviceViewport) => void;
+}
+
+/** Device picker (presets), landscape / portrait, the current size and the device frame switch of a responsive board. */
+const ViewportToolbar = ({
+  devices,
+  viewport,
+  hiddenPinCount,
+  showsDeviceFrame,
+  onShowsDeviceFrameChange,
+  onViewportChange,
+}: ViewportToolbarProps) => {
+  const { components } = useDesignStudio();
+  const { Button } = components;
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-b border-border px-5 py-2 text-sm">
+      <label className="flex items-center gap-2">
+        <span className="sr-only">Device</span>
+        <select
+          className="h-8 rounded-lg border border-border bg-card px-2 text-sm"
+          value={viewport.deviceKey ?? ''}
+          onChange={event => {
+            const device = devices.find(candidate => candidate.deviceKey === event.target.value);
+            if (device) onViewportChange(viewportOfDevice(device));
+          }}
+        >
+          {viewport.deviceKey === null && <option value="">Free width</option>}
+          {devices.map(device => (
+            <option key={device.deviceKey ?? ''} value={device.deviceKey ?? ''}>
+              {device.label} · {device.width} × {device.height}
+            </option>
+          ))}
+        </select>
+      </label>
+      <Button
+        variant="outline"
+        size="sm"
+        aria-label="Rotate (landscape / portrait)"
+        onClick={() => onViewportChange(rotateViewport(viewport, devices))}
+      >
+        <RotateCw /> Rotate
+      </Button>
+      <span className="text-muted-foreground tabular-nums">{viewportLabel(viewport, devices)}</span>
+      <Button
+        variant={showsDeviceFrame ? 'default' : 'outline'}
+        size="sm"
+        aria-pressed={showsDeviceFrame}
+        onClick={() => onShowsDeviceFrameChange(!showsDeviceFrame)}
+      >
+        <Smartphone /> Device frame
+      </Button>
+      {hiddenPinCount > 0 && (
+        <span className="ml-auto text-xs text-muted-foreground">
+          {hiddenPinCount} open pin(s) in other widths — pick their size in the comment list
+        </span>
+      )}
+    </div>
+  );
+};
+
+interface WidthDragHandleProps {
+  /** Scale the viewport is drawn at (screen pixels per page pixel). */
+  scale: number;
+  width: number;
+  onWidthChange: (width: number) => void;
+}
+
+/** The handle at the right edge of the viewport: dragging it sets a free width (page pixels). */
+const WidthDragHandle = ({ scale, width, onWidthChange }: WidthDragHandleProps) => {
+  const dragStartRef = useRef<{ clientX: number; width: number } | null>(null);
+  return (
+    <button
+      type="button"
+      aria-label={`Viewport width ${width} px: drag to change`}
+      className="absolute top-1/2 -right-6 z-30 h-24 w-3 -translate-y-1/2 cursor-ew-resize touch-none rounded-full bg-foreground/40 hover:bg-foreground/70"
+      onPointerDown={event => {
+        event.currentTarget.setPointerCapture(event.pointerId);
+        dragStartRef.current = { clientX: event.clientX, width };
+      }}
+      onPointerMove={event => {
+        const dragStart = dragStartRef.current;
+        if (!dragStart) return;
+        onWidthChange(dragStart.width + (event.clientX - dragStart.clientX) / Math.max(0.05, scale));
+      }}
+      onPointerUp={() => {
+        dragStartRef.current = null;
+      }}
+      onKeyDown={event => {
+        if (event.key === 'ArrowLeft') onWidthChange(width - 10);
+        if (event.key === 'ArrowRight') onWidthChange(width + 10);
+      }}
+    />
   );
 };

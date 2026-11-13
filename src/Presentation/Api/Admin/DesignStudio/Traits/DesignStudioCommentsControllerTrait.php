@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace DDD\Presentation\Api\Admin\DesignStudio\Traits;
 
 use DDD\Domain\DesignStudio\Entities\Comments\DesignStudioComment;
+use DDD\Domain\DesignStudio\Entities\Comments\DesignStudioCommentViewport;
 use DDD\Domain\DesignStudio\Services\DesignStudioCanvasViewsService;
 use DDD\Domain\DesignStudio\Services\DesignStudioCommentsService;
 use DDD\Presentation\Api\Admin\DesignStudio\Dtos\DesignStudioBoardRequestDto;
@@ -130,7 +131,9 @@ trait DesignStudioCommentsControllerTrait
             $commentDto->x,
             $commentDto->y,
             (bool)($commentDto->isDecision ?? false),
-            DesignStudioComment::AUTHOR_KIND_USER
+            DesignStudioComment::AUTHOR_KIND_USER,
+            null,
+            DesignStudioCommentViewport::fromWidthHeightAndDeviceKey($commentDto->viewportWidth, $commentDto->viewportHeight, $commentDto->deviceKey)
         );
         return $responseDto;
     }

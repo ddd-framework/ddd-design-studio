@@ -2,6 +2,9 @@
 
 import { createContext, useContext } from 'react';
 
+import type { DesignDevice } from '../api/types';
+import type { FrameHeightMode } from './deviceViewport';
+
 /**
  * Canvas state the board nodes read without being rebuilt: which boards may show live HTML, the selection, the search
  * / filter matches and the actions. The node array itself only changes when the canvas data changes.
@@ -18,6 +21,10 @@ export interface CanvasViewState {
   openThreadCounts: ReadonlyMap<string, number>;
   /** The status a board has without a stored one (the first configured status): shown without a badge. */
   defaultStatus: string | null;
+  /** How high the device frames of responsive boards are drawn: one screen, or the whole rendered page. */
+  frameHeightMode: FrameHeightMode;
+  /** Device presets of the canvas (frame labels). */
+  devices: readonly DesignDevice[];
   /** Hand tool (the default): every drag pans, a click on a board still selects it. */
   isHandTool: boolean;
   /** `isAdditive`: shift / cmd / ctrl click toggles the board in the selection instead of replacing it. */

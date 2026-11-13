@@ -248,7 +248,7 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
         // that one renders it), priority order kept within the shard
         $shardBoards = array_values(array_filter(
             $boardsWithoutThumbnail->getElements(),
-            static fn(DesignDirectoryBoard $designDirectoryBoard): bool => static::getShardOfBoard((string)$designDirectoryBoard->boardKey, $shardCount) === $shard
+            static fn(DesignDirectoryBoard $designDirectoryBoard): bool => static::getShardOfBoard($designDirectoryBoard->getRenderTargetKey(), $shardCount) === $shard
         ));
         if (!$shardBoards) {
             // the other shards render the rest; a shard that rendered boards watches them, a watching run goes on watching
@@ -334,7 +334,7 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
     ): void {
         $hasBoardOfAnotherShard = false;
         foreach ($remainingBoards->getElements() as $remainingBoard) {
-            if (static::getShardOfBoard((string)$remainingBoard->boardKey, $shardCount) !== $shard) {
+            if (static::getShardOfBoard($remainingBoard->getRenderTargetKey(), $shardCount) !== $shard) {
                 $hasBoardOfAnotherShard = true;
                 break;
             }
@@ -379,7 +379,7 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
     {
         $boardVersions = [];
         foreach ($remainingBoards->getElements() as $remainingBoard) {
-            $boardVersions[] = $remainingBoard->boardKey . ':' . $remainingBoard->contentHash . ':' . ($remainingBoard->assetsHash ?? '');
+            $boardVersions[] = $remainingBoard->getRenderTargetKey() . ':' . $remainingBoard->contentHash . ':' . ($remainingBoard->assetsHash ?? '');
         }
         sort($boardVersions);
         return hash('sha256', implode("\n", $boardVersions));
@@ -394,7 +394,7 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
     }
 
     /**
-     * @param string $boardKey
+     * @param string $boardKey the board key, of a device frame DesignDirectoryBoard::getRenderTargetKey()
      * @param int $shardCount
      * @return int the shard (0 … $shardCount - 1) that renders a board
      */
@@ -486,6 +486,8 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
         $renderer->height = max(1, (int)$designDirectoryBoard->height);
         $renderer->themeHash = $themeHash;
         $renderer->themeStyle = $themeStyle ?? '';
+        // a device frame of a responsive board: the whole page at the device's width
+        $renderer->fullPage = $designDirectoryBoard->frameDeviceKey !== null;
         $renderer->startRender();
         return $renderer;
     }

@@ -42,6 +42,15 @@ class DBDesignStudioCommentModel extends DoctrineModel
 	#[ORM\Column(type: 'float')]
 	public ?float $y;
 
+	#[ORM\Column(type: 'integer')]
+	public ?int $viewportWidth;
+
+	#[ORM\Column(type: 'integer')]
+	public ?int $viewportHeight;
+
+	#[ORM\Column(type: 'string')]
+	public ?string $deviceKey;
+
 	#[ORM\Column(type: 'string')]
 	public string $text;
 

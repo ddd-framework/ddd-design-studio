@@ -94,6 +94,10 @@ abstract class DesignStudioCommand extends Command
             }
             if (($designStudioComment->x ?? null) !== null) {
                 $flags[] = 'at ' . round((float)$designStudioComment->x) . ',' . round((float)($designStudioComment->y ?? 0));
+                $designStudioCommentViewport = $designStudioComment->getViewport();
+                if ($designStudioCommentViewport) {
+                    $flags[] = 'viewport ' . $designStudioCommentViewport->toReferenceText();
+                }
             }
         }
         $createdTime = $designStudioComment->changeHistory->createdTime ?? null;

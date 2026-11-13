@@ -37,6 +37,12 @@ class DesignDirectoryReaderService extends Service
     /** @var string Board files end with this suffix */
     public const string BOARD_FILE_SUFFIX = '.html';
 
+    /** @var string `<meta name="design-responsive">` in a board file marks the board as responsive */
+    public const string RESPONSIVE_META_NAME = 'design-responsive';
+
+    /** @var string `<meta name="design-route" content="/path">` in a board file names its page in the site view */
+    public const string ROUTE_META_NAME = 'design-route';
+
     /** @var string Note kinds of canvas.json that are section titles when a canvas declares no section patterns */
     public const string SECTION_NOTE_KIND_PREFIX = 'title';
 
@@ -318,6 +324,8 @@ class DesignDirectoryReaderService extends Service
         $boardMaximumBytes = $this->getBoardMaximumBytes();
         /** @var DesignBoardAssetsService $designBoardAssetsService */
         $designBoardAssetsService = DDDService::instance()->getService(DesignBoardAssetsService::class);
+        /** @var DesignDevicesService $designDevicesService */
+        $designDevicesService = DDDService::instance()->getService(DesignDevicesService::class);
         $cachedFileHashes = $this->loadFileHashes($folderPath);
         $fileHashes = [];
         $boards = [];
@@ -339,16 +347,20 @@ class DesignDirectoryReaderService extends Service
             $cachedFileHash = $cachedFileHashes[$boardKey] ?? null;
             if (
                 is_array($cachedFileHash) && $cachedFileHash[0] === $modificationTime && $cachedFileHash[1] === $byteSize
-                && is_array($cachedFileHash[3] ?? null)
+                && is_array($cachedFileHash[3] ?? null) && is_bool($cachedFileHash[4] ?? null)
             ) {
                 $contentHash = $cachedFileHash[2];
                 $assetPaths = $cachedFileHash[3];
+                $isMarkedResponsiveInFile = $cachedFileHash[4];
+                $routeInFile = $cachedFileHash[5] ?? null;
             } else {
                 $boardContent = (string)file_get_contents($boardPath);
                 $contentHash = static::computeContentHash($boardContent);
                 $assetPaths = DesignBoardAssetsService::findReferencedAssetPaths($boardContent);
+                $isMarkedResponsiveInFile = static::findMetaContent($boardContent, static::RESPONSIVE_META_NAME) !== null;
+                $routeInFile = static::normalizeRoute(static::findMetaContent($boardContent, static::ROUTE_META_NAME));
             }
-            $fileHashes[$boardKey] = [$modificationTime, $byteSize, $contentHash, $assetPaths];
+            $fileHashes[$boardKey] = [$modificationTime, $byteSize, $contentHash, $assetPaths, $isMarkedResponsiveInFile, $routeInFile];
             $designDirectoryBoard = new DesignDirectoryBoard();
             $designDirectoryBoard->boardKey = $boardKey;
             $designDirectoryBoard->title = (string)($boardDescription['title'] ?? $boardKey);
@@ -358,6 +370,16 @@ class DesignDirectoryReaderService extends Service
             $designDirectoryBoard->height = (int)($boardDescription['h'] ?? static::DEFAULT_BOARD_HEIGHT);
             $designDirectoryBoard->contentHash = $contentHash;
             $designDirectoryBoard->byteSize = $byteSize;
+            $designDirectoryBoard->isResponsive = (bool)($boardDescription['responsive'] ?? $canvasDescription['responsive'] ?? false)
+                || $isMarkedResponsiveInFile;
+            if ($designDirectoryBoard->isResponsive) {
+                $designDirectoryBoard->frameDeviceKeys = $designDevicesService->resolveFrameDeviceKeys(
+                    is_array($boardDescription['devices'] ?? null) ? $boardDescription['devices'] : null,
+                    is_array($canvasDescription['devices'] ?? null) ? $canvasDescription['devices'] : null
+                );
+            }
+            $designDirectoryBoard->route = static::normalizeRoute(is_string($boardDescription['route'] ?? null) ? $boardDescription['route'] : null)
+                ?? $routeInFile;
             if ($assetPaths) {
                 $designDirectoryBoard->assetsHash = $designBoardAssetsService
                     ->findCurrentAssetReferences($canvasDefinition, $assetPaths)
@@ -374,6 +396,38 @@ class DesignDirectoryReaderService extends Service
             $designDirectoryBoards->add($designDirectoryBoard);
         }
         return $designDirectoryBoards;
+    }
+
+    /**
+     * @param string $boardContent
+     * @param string $metaName
+     * @return string|null the content of the board's `<meta name="…">` (an empty string for a meta without content),
+     *                     null when the board has no such meta
+     */
+    public static function findMetaContent(string $boardContent, string $metaName): ?string
+    {
+        $quotedMetaName = preg_quote($metaName, '/');
+        if (!preg_match('/<meta\b[^>]*\bname\s*=\s*["\']?' . $quotedMetaName . '["\']?(?=[\s\/>])[^>]*>/i', $boardContent, $metaMatch)) {
+            return null;
+        }
+        return preg_match('/\bcontent\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s>]+))/i', $metaMatch[0], $contentMatch)
+            ? html_entity_decode($contentMatch[1] !== '' ? $contentMatch[1] : (($contentMatch[2] ?? '') !== '' ? $contentMatch[2] : ($contentMatch[3] ?? '')))
+            : '';
+    }
+
+    /**
+     * @param string|null $route
+     * @return string|null the route as a path with a leading slash and without a trailing one (`/` stays), null when
+     *                     it is no path (empty, external, with a query)
+     */
+    public static function normalizeRoute(?string $route): ?string
+    {
+        $route = trim((string)$route);
+        if ($route === '' || !preg_match('#^/?[A-Za-z0-9._~\-/%]*$#', $route) || str_contains($route, '//') || str_contains($route, '..')) {
+            return null;
+        }
+        $route = '/' . trim($route, '/');
+        return $route;
     }
 
     /**

@@ -5,15 +5,19 @@
  * extra lines below):
  *
  *   [design-ref] App › Onboarding – first run › 2 Welcome · code APP ONB-W2 · file onb-w-2-welcome.dc.html · canvas app/onboarding
- *     · v3f9c2ab · theme brand:1:dark · region 24,180,342,220
+ *     · v3f9c2ab · theme brand:1:dark · viewport 393x852 iphone-16 · region 24,180,342,220
  *     · https://…/app/canvases/onboarding?board=onb-w-2-welcome.dc.html&theme=brand:1&mode=dark
  *   note: make the tab bar more compact
  *
  * `code` is the board code (left out when the board has none), `file` the board key (the file name in the canvas folder), `v…` the first 7 characters of the board file's
- * content hash (git blob hash), `theme` the theme reference the board was looked at in (`none` = as authored).
+ * content hash (git blob hash), `theme` the theme reference the board was looked at in (`none` = as authored),
+ * `viewport` (responsive boards only) the viewport width × height and device preset the board was looked at in — a
+ * region or a comment position is a position in the page at that width.
  *
  * Pure functions, no React (tested in designReference.test.ts).
  */
+
+import { type DeviceViewport, viewportReferenceText } from './deviceViewport.ts';
 
 export const DESIGN_REFERENCE_PREFIX = '[design-ref]';
 
@@ -41,6 +45,8 @@ export interface DesignReferenceInput {
   themeReference: string | null;
   /** Deep link to the board on the canvas (with theme and mode). */
   url: string;
+  /** The viewport a responsive board is looked at in (region / comment positions are page positions at its width). */
+  viewport?: DeviceViewport | null;
   region?: BoardRegion | null;
   /** A comment thread the reference is about (id + pin position). */
   comment?: { id: number | string; x: number | null; y: number | null; lines: string[] } | null;
@@ -59,6 +65,7 @@ export const buildDesignReference = (input: DesignReferenceInput): string => {
     `canvas ${input.projectKey}/${input.canvasKey}`,
     `v${input.contentHash ? input.contentHash.slice(0, 7) : '?'}`,
     `theme ${input.themeReference || 'none'}`,
+    ...(input.viewport ? [`viewport ${viewportReferenceText(input.viewport)}`] : []),
   ];
   if (input.region) {
     const { x, y, width, height } = input.region;

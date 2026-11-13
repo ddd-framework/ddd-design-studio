@@ -100,13 +100,18 @@ class ArgusDesignBoardRenderedThumbnails extends DesignBoardRenderedThumbnails
         if ($token !== '') {
             $headers['X-Render-Token'] = $token;
         }
+        $body = [
+            'html' => $this->html,
+            'width' => $this->width,
+            'height' => $this->height,
+            'themes' => [['themeHash' => $this->themeHash, 'css' => $this->themeStyle]],
+        ];
+        if ($this->fullPage) {
+            // sent only when set: a renderer without the field renders width × height as before
+            $body['fullPage'] = true;
+        }
         return [
-            'body' => [
-                'html' => $this->html,
-                'width' => $this->width,
-                'height' => $this->height,
-                'themes' => [['themeHash' => $this->themeHash, 'css' => $this->themeStyle]],
-            ],
+            'body' => $body,
             'headers' => $headers,
         ];
     }

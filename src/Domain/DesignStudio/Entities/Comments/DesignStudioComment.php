@@ -85,6 +85,22 @@ class DesignStudioComment extends Entity
     #[DatabaseIndex(indexType: DatabaseIndex::TYPE_NONE)]
     public ?float $y;
 
+    /**
+     * @var int|null Viewport width in CSS pixels the comment was placed in (a responsive board: x / y are positions in
+     *      the page at this width); null = a fixed board, x / y are board pixels
+     */
+    #[DatabaseIndex(indexType: DatabaseIndex::TYPE_NONE)]
+    public ?int $viewportWidth;
+
+    /** @var int|null Viewport height in CSS pixels the comment was placed in; null = a fixed board */
+    #[DatabaseIndex(indexType: DatabaseIndex::TYPE_NONE)]
+    public ?int $viewportHeight;
+
+    /** @var string|null Device preset the comment was placed in (DesignDevice::$deviceKey); null = a free width or a fixed board */
+    #[Length(max: 64)]
+    #[DatabaseIndex(indexType: DatabaseIndex::TYPE_NONE)]
+    public ?string $deviceKey;
+
     /** @var string|null The comment */
     #[NotNull]
     #[Length(max: self::MAX_TEXT_LENGTH)]
@@ -139,6 +155,14 @@ class DesignStudioComment extends Entity
     public function isThreadRoot(): bool
     {
         return ($this->parentDesignStudioCommentId ?? null) === null;
+    }
+
+    /**
+     * @return DesignStudioCommentViewport|null the viewport the pin was placed in, null on a fixed board
+     */
+    public function getViewport(): ?DesignStudioCommentViewport
+    {
+        return DesignStudioCommentViewport::fromWidthHeightAndDeviceKey($this->viewportWidth ?? null, $this->viewportHeight ?? null, $this->deviceKey ?? null);
     }
 
     /**

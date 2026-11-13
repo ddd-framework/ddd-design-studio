@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.4.0
+
+**Responsive boards.** A board whose layout adapts to the viewport width is shown in device frames.
+
+- **Marker.** `"responsive": true` on a board or on the canvas in canvas.json, or `<meta name="design-responsive">` in
+  the board file. Unmarked boards stay fixed, as before.
+- **Devices.** New config `DesignStudio.devices` (`config/app/DesignStudio/devices.php`): the presets (Desktop 1920 /
+  1440, Laptop 1280, iPad Pro 12.9" and iPad 10.9" landscape / portrait, iPhone 16 Pro Max, iPhone 16 / 15, iPhone
+  SE, Android) and `defaultFrameDeviceKeys`. `"devices": [...]` on a board or the canvas picks the frames.
+- **Canvas.** One frame per device side by side (same file, version, status, code); a toolbar switch draws one screen
+  or the whole page. The canvas view carries `devices`, a board view `isResponsive`, `frames` (device, width, height,
+  page height, thumbnails) and `route`.
+- **Focus view and present mode.** Device picker, landscape / portrait, a free width by a drag handle, device frame
+  switch; scaled down when wider than the screen; the viewport stays while stepping through boards.
+- **Comments.** A pin keeps its viewport (`viewportWidth`, `viewportHeight`, `deviceKey`) and shows at that width; the
+  design reference and the console print `viewport <w>x<h> [<device>]`; `app:design-studio:comments --viewport
+  --device` set it. **Schema:** three nullable columns on `DesignStudioComments`, no index:
+  `viewportWidth` INT, `viewportHeight` INT, `deviceKey` VARCHAR(64) (take the exact DDL from the schema diff).
+- **Thumbnails.** One per frame. The renderer request carries `"fullPage": true` for a frame: lay out at `width` ×
+  `height`, photograph the whole page (height = page height, at least `height`); the response is unchanged (each
+  image's `width` / `height` = the picture's size). A renderer without the field renders one screen. The example
+  renderer supports it. The frame width is part of the thumbnail key; fixed boards keep their keys.
+- **Route** (for the site view of the next release): `"route": "/path"` on a board or
+  `<meta name="design-route" content="/path">`.
+
 ## 0.3.2
 
 - **Fix: a render request no longer stays `RUNNING` without a run.** A board whose file or asset files changed between

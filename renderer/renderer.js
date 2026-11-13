@@ -43,9 +43,14 @@ const prepareHtml = html => {
   return withoutScripts.slice(0, insertAt) + getFontFaceStyle() + withoutScripts.slice(insertAt);
 };
 
+/** Highest picture of a whole page (`fullPage`): a longer page is cut there. */
+const MAXIMUM_FULL_PAGE_HEIGHT = 20000;
+
 /**
  * @param {import('playwright').Browser} browser
- * @param {{html: string, width: number, height: number, themes: {themeHash: string, css: string}[]}} job
+ * @param {{html: string, width: number, height: number, fullPage?: boolean, themes: {themeHash: string, css: string}[]}} job
+ *   `fullPage`: the whole page at `width` — the picture is as high as the page (at least `height`, at most
+ *   MAXIMUM_FULL_PAGE_HEIGHT); without it exactly `width` × `height`
  * @param {{signal?: AbortSignal}} [options]
  * @returns {Promise<{themeHash: string, full: Buffer, width: number, height: number}[]>}
  */
@@ -78,8 +83,17 @@ const renderBoardThemes = async (browser, job, options = {}) => {
         await Promise.all([...document.images].map(image => (image.complete ? null : image.decode().catch(() => null))));
         await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       });
-      const full = await page.screenshot({ clip: { x: 0, y: 0, width, height }, type: 'png' });
-      images.push({ themeHash: theme.themeHash, full, width, height });
+      let pictureHeight = height;
+      if (job.fullPage) {
+        const pageHeight = await page.evaluate(() =>
+          Math.ceil(Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0))
+        );
+        pictureHeight = Math.max(height, Math.min(MAXIMUM_FULL_PAGE_HEIGHT, pageHeight || height));
+        // a viewport as high as the page: elements sized in vh keep the device's height only in the first screen
+        // otherwise, so the page is measured at the device height and photographed in one piece
+      }
+      const full = await page.screenshot({ clip: { x: 0, y: 0, width, height: pictureHeight }, fullPage: job.fullPage === true, type: 'png' });
+      images.push({ themeHash: theme.themeHash, full, width, height: pictureHeight });
     }
     return images;
   } finally {

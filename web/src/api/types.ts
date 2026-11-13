@@ -28,6 +28,12 @@ export interface DesignStudioComment {
   x?: number | null;
   /** Pin position from the board's top edge in board pixels */
   y?: number | null;
+  /** Viewport width the pin was placed in (a responsive board: x / y are page positions at this width); null = a fixed board */
+  viewportWidth?: number | null;
+  /** Viewport height the pin was placed in */
+  viewportHeight?: number | null;
+  /** Device preset the pin was placed in; null = a free width or a fixed board */
+  deviceKey?: string | null;
   /** The comment */
   text: string | null;
   /** Id of the account that wrote it; no relation, the account may be gone */
@@ -133,6 +139,53 @@ export interface DesignStudioBoardView {
   thumbnailUrl?: string | null;
   /** URL of the reduced thumbnail for far zoom levels, null when there is none (yet) */
   thumbnailSmallUrl?: string | null;
+  /** The layout adapts to the viewport width: the board is shown in device frames */
+  isResponsive?: boolean;
+  /** Device frames of a responsive board, side by side (width / height of the board = their extent); null for a fixed board */
+  frames?: DesignStudioBoardFrameViews | null;
+  /** Path of the board's page in the site view (`/`, `/pricing`), null = no page */
+  route?: string | null;
+  objectType?: string | null;
+}
+
+/** One device frame of a responsive board. */
+export interface DesignStudioBoardFrameView {
+  /** Key of the device */
+  deviceKey?: string | null;
+  /** Viewport width in CSS pixels */
+  width?: number;
+  /** Viewport height in CSS pixels (frame height in viewport mode) */
+  height?: number;
+  /** Height of the whole page at this width as rendered; null until the frame has a thumbnail */
+  pageHeight?: number | null;
+  /** Thumbnail of the whole page at this width, null until rendered */
+  thumbnailUrl?: string | null;
+  /** Reduced thumbnail, null until rendered */
+  thumbnailSmallUrl?: string | null;
+  objectType?: string | null;
+}
+
+export interface DesignStudioBoardFrameViews {
+  elements?: DesignStudioBoardFrameView[];
+  objectType?: string | null;
+}
+
+/** A device preset responsive boards are shown in. */
+export interface DesignDevice {
+  /** Key of the preset, e.g. `iphone-16` */
+  deviceKey?: string | null;
+  /** Name shown in the picker */
+  label?: string | null;
+  /** Viewport width in CSS pixels */
+  width?: number;
+  /** Viewport height in CSS pixels */
+  height?: number;
+  kind?: ('DESKTOP' | 'TABLET' | 'PHONE') | null;
+  objectType?: string | null;
+}
+
+export interface DesignDevices {
+  elements?: DesignDevice[];
   objectType?: string | null;
 }
 
@@ -169,6 +222,8 @@ export interface DesignStudioCanvasView {
   renderRequestStatus?: string | null;
   /** Last renderer problem of that request */
   renderRequestError?: string | null;
+  /** Device presets responsive boards can be shown in */
+  devices?: DesignDevices;
   objectType?: string | null;
 }
 
@@ -332,6 +387,12 @@ export interface DesignStudioCommentCreateArg extends DesignStudioBoardArg {
     x?: number | null;
     /** Pin position from the top edge in board pixels */
     y?: number | null;
+    /** Viewport width the pin was placed in (a responsive board); omitted = board pixels */
+    viewportWidth?: number | null;
+    /** Viewport height the pin was placed in */
+    viewportHeight?: number | null;
+    /** Device preset the pin was placed in; omitted = a free width */
+    deviceKey?: string | null;
     /** Marks the comment as a decision */
     isDecision?: boolean | null;
   };

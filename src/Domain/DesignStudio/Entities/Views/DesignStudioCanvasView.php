@@ -6,6 +6,7 @@ namespace DDD\Domain\DesignStudio\Entities\Views;
 
 use DDD\Domain\DesignStudio\Entities\Directory\DesignDirectorySections;
 use DDD\Domain\Base\Entities\ValueObject;
+use DDD\Domain\DesignStudio\Entities\Devices\DesignDevices;
 
 /**
  * A canvas as the studio page shows it: sections and boards read from the checkout, joined with the review state
@@ -49,8 +50,11 @@ class DesignStudioCanvasView extends ValueObject
     /** @var bool Thumbnails are rendered and shown */
     public bool $isRendererEnabled = false;
 
-    /** @var int Boards without a thumbnail in the requested look */
+    /** @var int Pictures (fixed boards and device frames of responsive boards) without a thumbnail in the requested look */
     public int $missingThumbnailCount = 0;
+
+    /** @var DesignDevices The device presets responsive boards can be shown in (picker of focus view and present mode) */
+    public DesignDevices $devices;
 
     /** @var string|null Status of the newest render request for the look, null without one */
     public ?string $renderRequestStatus = null;

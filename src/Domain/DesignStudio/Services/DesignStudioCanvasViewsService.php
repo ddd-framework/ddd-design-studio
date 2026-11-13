@@ -7,7 +7,11 @@ namespace DDD\Domain\DesignStudio\Services;
 use DDD\Domain\DesignStudio\Entities\Definitions\DesignCanvasDefinition;
 use DDD\Domain\DesignStudio\Entities\Directory\DesignDirectoryBoard;
 use DDD\Domain\DesignStudio\Entities\Directory\DesignDirectoryCanvas;
+use DDD\Domain\DesignStudio\Entities\Devices\DesignDevices;
 use DDD\Domain\DesignStudio\Entities\Thumbnails\DesignStudioThumbnail;
+use DDD\Domain\DesignStudio\Entities\Thumbnails\DesignStudioThumbnails;
+use DDD\Domain\DesignStudio\Entities\Views\DesignStudioBoardFrameView;
+use DDD\Domain\DesignStudio\Entities\Views\DesignStudioBoardFrameViews;
 use DDD\Domain\DesignStudio\Entities\Views\DesignStudioBoardView;
 use DDD\Domain\DesignStudio\Entities\Views\DesignStudioBoardViews;
 use DDD\Domain\DesignStudio\Entities\Views\DesignStudioCanvasSummaries;
@@ -38,6 +42,9 @@ class DesignStudioCanvasViewsService extends Service
 {
     /** @var string Fallback of the config `DesignStudio.api.contentBasePath` */
     public const string DEFAULT_CONTENT_BASE_PATH = '/api/admin/designStudio/content';
+
+    /** @var int Gap in pixels between the device frames of a responsive board on the canvas */
+    public const int FRAME_GAP = 48;
 
     /**
      * @param string $projectKey
@@ -138,6 +145,10 @@ class DesignStudioCanvasViewsService extends Service
         $designStudioCanvasView->warnings = $designDirectoryCanvas->warnings;
         $designStudioCanvasView->statuses = $statuses;
         $designStudioCanvasView->isRendererEnabled = $isRendererEnabled;
+        /** @var DesignDevicesService $designDevicesService */
+        $designDevicesService = DDDService::instance()->getService(DesignDevicesService::class);
+        $designDevices = $designDevicesService->getDevices();
+        $designStudioCanvasView->devices = $designDevices;
         foreach ($designDirectoryCanvas->boards->getElements() as $designDirectoryBoard) {
             $boardKey = (string)$designDirectoryBoard->boardKey;
             $designStudioBoardStatus = $statusesByBoardKey[$boardKey] ?? null;
@@ -159,6 +170,24 @@ class DesignStudioCanvasViewsService extends Service
                 && ($designStudioBoardStatus->contentHash ?? null) !== null
                 && $designStudioBoardStatus->contentHash !== $designDirectoryBoard->contentHash;
             $designStudioBoardView->openThreadCount = $openThreadCounts[$boardKey] ?? 0;
+            $designStudioBoardView->route = $designDirectoryBoard->route;
+            if ($designDirectoryBoard->isResponsive && $designDirectoryBoard->contentHash !== null) {
+                $this->addFrameViews(
+                    $designStudioBoardView,
+                    $designDirectoryBoard,
+                    $designDevices,
+                    $designStudioThumbnails,
+                    $themeHash,
+                    $contentBasePath . '/thumbnails/',
+                    $tokenQuery
+                );
+                $designStudioCanvasView->missingThumbnailCount += $isRendererEnabled
+                    ? count(array_filter(
+                        $designStudioBoardView->frames->getElements(),
+                        static fn(DesignStudioBoardFrameView $designStudioBoardFrameView): bool => $designStudioBoardFrameView->thumbnailUrl === null
+                    ))
+                    : 0;
+            }
             if ($designDirectoryBoard->contentHash !== null) {
                 // the content hash in the URL makes it change exactly when the board (or its look) changes
                 // … and the assets hash when an asset file the board shows changes
@@ -171,12 +200,13 @@ class DesignStudioCanvasViewsService extends Service
                     $themeHash,
                     $designDirectoryBoard->assetsHash
                 );
-                $designStudioThumbnail = $designStudioThumbnails?->getByThumbnailKey($thumbnailKey);
+                // a responsive board has its pictures per frame (addFrameViews())
+                $designStudioThumbnail = $designDirectoryBoard->isResponsive ? null : $designStudioThumbnails?->getByThumbnailKey($thumbnailKey);
                 if ($designStudioThumbnail) {
                     $thumbnailUrl = $contentBasePath . '/thumbnails/' . $thumbnailKey . '?' . $tokenQuery;
                     $designStudioBoardView->thumbnailUrl = $thumbnailUrl;
                     $designStudioBoardView->thumbnailSmallUrl = $thumbnailUrl . '&size=' . DesignStudioThumbnail::SIZE_SMALL;
-                } elseif ($isRendererEnabled) {
+                } elseif ($isRendererEnabled && !$designDirectoryBoard->isResponsive) {
                     $designStudioCanvasView->missingThumbnailCount++;
                 }
             }
@@ -196,6 +226,64 @@ class DesignStudioCanvasViewsService extends Service
         }
         $designStudioCanvasView->revision = $this->computeRevision($canvasDefinition, $designDirectoryCanvas);
         return $designStudioCanvasView;
+    }
+
+    /**
+     * Sets the device frames of a responsive board: one per frame device, side by side with FRAME_GAP between them;
+     * the board's width and height become the extent of the frames in viewport mode.
+     * @param DesignStudioBoardView $designStudioBoardView
+     * @param DesignDirectoryBoard $designDirectoryBoard a responsive board
+     * @param DesignDevices $designDevices
+     * @param DesignStudioThumbnails|null $designStudioThumbnails the canvas' thumbnails in the look, null without renderer
+     * @param string $themeHash
+     * @param string $thumbnailBasePath `…/thumbnails/`
+     * @param string $tokenQuery `token=…`
+     * @return void
+     */
+    protected function addFrameViews(
+        DesignStudioBoardView $designStudioBoardView,
+        DesignDirectoryBoard $designDirectoryBoard,
+        DesignDevices $designDevices,
+        ?DesignStudioThumbnails $designStudioThumbnails,
+        string $themeHash,
+        string $thumbnailBasePath,
+        string $tokenQuery
+    ): void {
+        $designStudioThumbnailsService = $this->getDesignStudioThumbnailsService();
+        $designStudioBoardView->isResponsive = true;
+        $designStudioBoardView->frames = new DesignStudioBoardFrameViews();
+        $framesWidth = 0;
+        $framesHeight = 0;
+        foreach ($designDirectoryBoard->frameDeviceKeys as $frameDeviceKey) {
+            $designDevice = $designDevices->getByDeviceKey($frameDeviceKey);
+            if (!$designDevice) {
+                continue;
+            }
+            $designStudioBoardFrameView = new DesignStudioBoardFrameView();
+            $designStudioBoardFrameView->deviceKey = $designDevice->deviceKey;
+            $designStudioBoardFrameView->width = $designDevice->width;
+            $designStudioBoardFrameView->height = $designDevice->height;
+            $thumbnailKey = $designStudioThumbnailsService->computeThumbnailKey(
+                (string)$designDirectoryBoard->contentHash,
+                $themeHash,
+                $designDirectoryBoard->assetsHash,
+                $designDevice->width
+            );
+            $designStudioThumbnail = $designStudioThumbnails?->getByThumbnailKey($thumbnailKey);
+            if ($designStudioThumbnail) {
+                $thumbnailUrl = $thumbnailBasePath . $thumbnailKey . '?' . $tokenQuery;
+                $designStudioBoardFrameView->thumbnailUrl = $thumbnailUrl;
+                $designStudioBoardFrameView->thumbnailSmallUrl = $thumbnailUrl . '&size=' . DesignStudioThumbnail::SIZE_SMALL;
+                $designStudioBoardFrameView->pageHeight = $designStudioThumbnail->height;
+            }
+            $designStudioBoardView->frames->add($designStudioBoardFrameView);
+            $framesWidth += ($framesWidth > 0 ? static::FRAME_GAP : 0) + $designDevice->width;
+            $framesHeight = max($framesHeight, $designDevice->height);
+        }
+        if ($framesWidth > 0) {
+            $designStudioBoardView->width = $framesWidth;
+            $designStudioBoardView->height = $framesHeight;
+        }
     }
 
     /**

@@ -27,6 +27,22 @@ class DesignStudioCommentCreateRequestDto extends RequestDto
     #[Parameter(in: Parameter::BODY, required: false)]
     public ?float $y = null;
 
+    /**
+     * @var int|null Viewport width in CSS pixels the pin was placed in (a responsive board: x / y are positions in the
+     *      page at this width); omitted = board pixels
+     */
+    #[Parameter(in: Parameter::BODY, required: false)]
+    public ?int $viewportWidth = null;
+
+    /** @var int|null Viewport height in CSS pixels the pin was placed in */
+    #[Parameter(in: Parameter::BODY, required: false)]
+    public ?int $viewportHeight = null;
+
+    /** @var string|null Device preset the pin was placed in (a device key of the canvas view); omitted = a free width */
+    #[Parameter(in: Parameter::BODY, required: false)]
+    #[Length(max: 64)]
+    public ?string $deviceKey = null;
+
     /** @var bool|null Marks the comment as a decision */
     #[Parameter(in: Parameter::BODY, required: false)]
     public ?bool $isDecision = null;

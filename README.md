@@ -366,6 +366,13 @@ Object keys: `<prefix>/snapshots/<contentHash>.html`, `<prefix>/thumbnails/<thum
 | `concurrencyEnv` | name of an environment variable that overrides the concurrency; `null` = none | `DESIGN_RENDER_CONCURRENCY` |
 | `rendererVersion` | part of every thumbnail key; change it when the renderer's output changes and every thumbnail is rendered anew | `playwright-1.64.1` |
 
+### `devices.php` — `DesignStudio.devices`
+
+| Key | Meaning | Default |
+|---|---|---|
+| `devices` | device presets of responsive boards, in picker order: `key` (`a-z`, digits, `-`), `label`, `width` and `height` in CSS pixels (width 240 to 3840), `kind` `DESKTOP` / `TABLET` / `PHONE` | Desktop 1920×1080 and 1440×900, Laptop 1280×800, iPad Pro 12.9" landscape / portrait, iPad 10.9" landscape / portrait, iPhone 16 Pro Max, iPhone 16 / 15, iPhone SE, Android |
+| `defaultFrameDeviceKeys` | frames of a responsive board when neither the board nor the canvas lists its own `devices` | `desktop-1440`, `ipad-10-portrait`, `iphone-16` |
+
 ## Canvas folder format
 
 A canvas folder holds `canvas.json` and one HTML file per board.
@@ -392,6 +399,13 @@ How `DesignDirectoryReaderService` reads it:
   Other entries are skipped silently.
 - **Board fields:** `x`, `y` (default `0`), `w` (default `390`), `h` (default `844`), `title` (default: the board
   key). All numbers are read as integers.
+- **Responsive boards.** `"responsive": true` on a board, or on the canvas for all its boards, or
+  `<meta name="design-responsive">` in the board file marks a layout that adapts to the viewport width. `"devices":
+  ["desktop-1440", "iphone-16"]` on the board, else on the canvas, else `defaultFrameDeviceKeys` names its frames
+  (unknown keys are left out). `w` / `h` do not apply to a responsive board. Boards without the marker stay fixed, as
+  before.
+- **Route.** `"route": "/pricing"` on a board, or `<meta name="design-route" content="/pricing">` in its file, names its
+  page in the site view (`/` = the start page). A route is a path without query or `..`; anything else is ignored.
 - A board whose file is missing or larger than `boardMaximumBytes` is left out and reported in the canvas' `warnings`.
 - **Sections** come from `notes`. With `sections` patterns in the configuration, a note is a section when its key
   matches one; without patterns, when its `kind` starts with `title`. Note fields: `x`, `y` (default `0`), `text`
@@ -402,6 +416,24 @@ How `DesignDirectoryReaderService` reads it:
 - Positions are shifted so that the smallest `x` and the smallest `y` of the selected boards and sections are `0`.
 - Content hashes are cached per folder and validated against modification time and size of each file, so an unchanged
   canvas is read without opening its board files.
+
+### Responsive boards
+
+A responsive board is one file shown at several viewport widths:
+
+- **Canvas.** One frame per frame device, side by side, each with the device name and width above it, the same status,
+  code and comments. The toolbar switches all frames between one screen (the device height) and the whole page (the
+  height the renderer measured at that width; at most 8000 px on the canvas).
+- **Focus view and present mode.** A device picker (the presets), landscape / portrait, a free width by the drag handle
+  at the right edge and the device frame switch. A viewport wider than the screen is scaled down. The chosen viewport
+  stays while stepping through boards (also in present mode) and is reset when the focus view closes.
+- **Comments.** A pin keeps the viewport it was placed in (`viewportWidth`, `viewportHeight`, `deviceKey` on the
+  comment); `x` / `y` are positions in the page at that width. A pin is shown at its width only; the thread names its
+  viewport and opens it. The design reference carries `viewport <w>x<h> [<device>]`, the console prints it after the
+  position, and `app:design-studio:comments … --new=… --x --y --viewport=393x852 --device=iphone-16` sets it.
+- **Thumbnails.** One picture per frame: the renderer gets the device width and height with `fullPage: true` and
+  photographs the whole page. The frame width is part of the thumbnail key; a fixed board keeps its key. The
+  renderer contract: [`renderer/README.md`](renderer/README.md).
 
 ### Images: the `assets/` folder
 
@@ -482,7 +514,7 @@ account must pass the access policy. Boards are the files of the checkout the co
 | Command | Arguments | Options | Purpose |
 |---|---|---|---|
 | `app:design-studio:show` | `[project] [canvas]` | `--board=<file>`, `--open` | without both arguments: the overview; with them: the canvas by section (board, version, status, open threads, warnings); `--board`: one board with its threads; `--open`: only boards with open threads |
-| `app:design-studio:comments` | `project canvas` | list: `--open`, `--board=<file>`, `--sinceId=<id>`; new thread: `--new=<text> --board=<file> [--x --y] [--decision]`; actions: `--reply=<id> --text=<text>`, `--resolve=<id> [--text=<text>]`, `--reopen=<id>`, `--keep=<id>`, `--delete=<id>`; `--as=<name>` (default `Agent`) | lists threads grouped by board, or performs one action. Comments are written with author kind `AGENT` |
+| `app:design-studio:comments` | `project canvas` | list: `--open`, `--board=<file>`, `--sinceId=<id>`; new thread: `--new=<text> --board=<file> [--x --y] [--viewport=<w>x<h> [--device=<key>]] [--decision]`; actions: `--reply=<id> --text=<text>`, `--resolve=<id> [--text=<text>]`, `--reopen=<id>`, `--keep=<id>`, `--delete=<id>`; `--as=<name>` (default `Agent`) | lists threads grouped by board, or performs one action. Comments are written with author kind `AGENT` |
 | `app:design-studio:comments-poll` | `project canvas` | `--sinceId=<id>` (default `0`), `--wait=<seconds>` (default `0`) | prints comments newer than the id, optionally waiting for one (looks every 5 seconds), then `sinceId=<newest id>` to continue from |
 | `app:design-studio:decisions` | `project canvas` | — | the decisions log (decision threads with their replies) as Markdown |
 | `app:design-studio:status` | `project canvas board status` | `--as=<name>` (default `Agent`) | sets the review status of a board |

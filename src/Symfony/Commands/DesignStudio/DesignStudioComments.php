@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace DDD\Symfony\Commands\DesignStudio;
 
 use DDD\Domain\DesignStudio\Entities\Comments\DesignStudioComment;
+use DDD\Domain\DesignStudio\Entities\Comments\DesignStudioCommentViewport;
 use DDD\Domain\DesignStudio\Services\DesignStudioCommentsService;
 use DDD\Infrastructure\Services\DDDService;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -28,6 +29,8 @@ class DesignStudioComments extends DesignStudioCommand
             ->addOption('new', null, InputOption::VALUE_REQUIRED, 'Starts a thread with this text on --board')
             ->addOption('x', null, InputOption::VALUE_REQUIRED, 'With --new: pin position from the left edge in board pixels')
             ->addOption('y', null, InputOption::VALUE_REQUIRED, 'With --new: pin position from the top edge in board pixels')
+            ->addOption('viewport', null, InputOption::VALUE_REQUIRED, 'With --new on a responsive board: the viewport the pin position is in, <width>x<height> (e.g. 393x852)')
+            ->addOption('device', null, InputOption::VALUE_REQUIRED, 'With --new and --viewport: the device preset key (e.g. iphone-16)')
             ->addOption('decision', null, InputOption::VALUE_NONE, 'With --new: marks the thread as a decision')
             ->addOption('reply', null, InputOption::VALUE_REQUIRED, 'Id of a comment: replies with --text')
             ->addOption('resolve', null, InputOption::VALUE_REQUIRED, 'Id of a comment: resolves its thread (with --text: after a last reply)')
@@ -62,7 +65,8 @@ class DesignStudioComments extends DesignStudioCommand
                 $input->getOption('y') !== null ? (float)$input->getOption('y') : null,
                 (bool)$input->getOption('decision'),
                 $authorKind,
-                $authorName
+                $authorName,
+                $this->parseViewportOption($input)
             );
             $output->writeln($this->formatComment($designStudioComment));
             return Command::SUCCESS;
@@ -128,5 +132,17 @@ class DesignStudioComments extends DesignStudioCommand
         }
         $output->writeln("$count comment(s)");
         return Command::SUCCESS;
+    }
+
+    /**
+     * @param InputInterface $input
+     * @return DesignStudioCommentViewport|null the viewport of --viewport `<width>x<height>` and --device, null without
+     */
+    protected function parseViewportOption(InputInterface $input): ?DesignStudioCommentViewport
+    {
+        if (!preg_match('/^\s*(\d+)\s*[xX×]\s*(\d+)\s*$/u', (string)$input->getOption('viewport'), $viewportMatch)) {
+            return null;
+        }
+        return DesignStudioCommentViewport::fromWidthHeightAndDeviceKey((int)$viewportMatch[1], (int)$viewportMatch[2], $input->getOption('device'));
     }
 }

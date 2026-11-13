@@ -16,6 +16,8 @@ import {
   PanelRightOpen,
   RefreshCw,
   Sun,
+  FoldVertical,
+  UnfoldVertical,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -30,6 +32,14 @@ import { buildBoardCodeLink, CODE_PARAM, findBoardForCode, normalizeBoardCode } 
 import { LIVE_MIN_RENDERED_WIDTH_RATIO, LIVE_MIN_RENDERED_WIDTH_RATIO_WITHOUT_THUMBNAILS } from './boardDetail';
 import { boardStatusLabel } from './boardStatus';
 import { computeCanvasLayout } from './canvasLayout';
+import {
+  boardCanvasSize,
+  type DeviceViewport,
+  type FrameHeightMode,
+  initialViewportForBoard,
+  isResponsiveBoard,
+  viewportOfComment,
+} from './deviceViewport';
 import {
   type CanvasViewport,
   formatViewportParam,
@@ -268,6 +278,10 @@ export const DesignStudioCanvasScreen = ({ projectKey, canvasKey }: DesignStudio
   const [selectedBoardId, setSelectedBoardId] = useState<string | null>(null);
   const [selectedBoardIds, setSelectedBoardIds] = useState<ReadonlySet<string>>(new Set());
   const [focusedBoardId, setFocusedBoardId] = useState<string | null>(null);
+  // responsive boards: frames one screen high or the whole page; the viewport of the focus view / present mode (kept
+  // while stepping through boards, reset when the focus view closes)
+  const [frameHeightMode, setFrameHeightMode] = useState<FrameHeightMode>('viewport');
+  const [chosenFocusViewport, setChosenFocusViewport] = useState<DeviceViewport | null>(null);
   const [presentSectionId, setPresentSectionId] = useState<string | null>(null);
   const [fitRequest, setFitRequest] = useState<CanvasFitRequest | null>(null);
   // pan by default; the area-select tool is opt-in and kept only for this page visit
@@ -460,13 +474,14 @@ export const DesignStudioCanvasScreen = ({ projectKey, canvasKey }: DesignStudio
       shownBoardList.map(board => ({
         id: boardNodeId(board.boardKey ?? ''),
         sectionId: board.sectionKey && sectionKeys.has(board.sectionKey) ? board.sectionKey : null,
-        width: board.width ?? 390,
-        height: board.height ?? 844,
+        ...boardCanvasSize(board, frameHeightMode),
         displayOrder: board.displayOrder ?? 0,
       })),
       canvasAspectRatio ?? undefined
     );
-  }, [sections, shownBoardList, canvasAspectRatio]);
+  }, [sections, shownBoardList, canvasAspectRatio, frameHeightMode]);
+  const devices = useMemo(() => canvas?.devices?.elements ?? [], [canvas?.devices]);
+  const hasResponsiveBoards = useMemo(() => shownBoardList.some(board => isResponsiveBoard(board)), [shownBoardList]);
 
   // Measure the canvas area (and follow big resizes: a change under 15 % keeps the layout).
   const hasCanvas = Boolean(canvas);
@@ -653,6 +668,7 @@ export const DesignStudioCanvasScreen = ({ projectKey, canvasKey }: DesignStudio
   const closeFocus = useCallback(() => {
     setFocusedBoardId(null);
     setPresentSectionId(null);
+    setChosenFocusViewport(null);
     writeSearchParams({ [BOARD_PARAM]: null });
   }, [writeSearchParams]);
   const presentSection = useCallback(
@@ -808,6 +824,7 @@ export const DesignStudioCanvasScreen = ({ projectKey, canvasKey }: DesignStudio
     (thread: CommentThread) =>
       void copyReferences([
         buildReferenceFor(boardNodeId(thread.root.boardKey ?? ''), {
+          viewport: viewportOfComment(thread.root),
           comment: {
             id: thread.root.id ?? '',
             x: thread.root.x ?? null,
@@ -902,6 +919,8 @@ export const DesignStudioCanvasScreen = ({ projectKey, canvasKey }: DesignStudio
       matchingBoardIds,
       openThreadCounts,
       defaultStatus,
+      frameHeightMode,
+      devices,
       isHandTool: tool === 'hand',
       onSelectBoard: selectBoard,
       onCopyReference: nodeId => void copyReferences([buildReferenceFor(nodeId)]),
@@ -915,6 +934,8 @@ export const DesignStudioCanvasScreen = ({ projectKey, canvasKey }: DesignStudio
       matchingBoardIds,
       openThreadCounts,
       defaultStatus,
+      frameHeightMode,
+      devices,
       tool,
       selectBoard,
       copyReferences,
@@ -926,6 +947,7 @@ export const DesignStudioCanvasScreen = ({ projectKey, canvasKey }: DesignStudio
 
   const selectedBoard = selectedBoardId ? (boardsByNodeId.get(selectedBoardId) ?? null) : null;
   const focusedBoard = focusedBoardId ? (boardsByNodeId.get(focusedBoardId) ?? null) : null;
+  const focusViewport = initialViewportForBoard(focusedBoard, chosenFocusViewport);
   const threadsOf = (nodeId: string | null): CommentThread[] =>
     nodeId ? buildCommentThreads(commentsByBoardNodeId.get(nodeId) ?? []) : [];
   const boardsWithOpenThreads = layoutOrder.filter(nodeId => openThreadCounts.has(nodeId));
@@ -1036,6 +1058,26 @@ export const DesignStudioCanvasScreen = ({ projectKey, canvasKey }: DesignStudio
 
   const toolbarEnd = (
     <>
+      {hasResponsiveBoards && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className={TOOL_BUTTON_CLASS}
+              aria-pressed={frameHeightMode === 'page'}
+              aria-label={frameHeightMode === 'page' ? 'Device frames: whole page' : 'Device frames: one screen'}
+              onClick={() => setFrameHeightMode(mode => (mode === 'page' ? 'viewport' : 'page'))}
+            >
+              {frameHeightMode === 'page' ? <FoldVertical className="size-4" /> : <UnfoldVertical className="size-4" />}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            {frameHeightMode === 'page'
+              ? 'Responsive boards: whole page — show one screen per device'
+              : 'Responsive boards: one screen — show the whole page per device'}
+          </TooltipContent>
+        </Tooltip>
+      )}
       <Tooltip>
         <TooltipTrigger asChild>
           <button
@@ -1295,8 +1337,12 @@ export const DesignStudioCanvasScreen = ({ projectKey, canvasKey }: DesignStudio
         onPrevious={() => stepFocus(-1)}
         onNext={() => stepFocus(1)}
         onStatusChanged={status => focusedBoardId && setBoardStatus(focusedBoardId, status)}
+        devices={devices}
+        viewport={focusViewport}
+        onViewportChange={setChosenFocusViewport}
         onCopyReference={({ region, note }) =>
-          focusedBoardId && void copyReferences([buildReferenceFor(focusedBoardId, { region, note })])
+          focusedBoardId &&
+          void copyReferences([buildReferenceFor(focusedBoardId, { region, note, viewport: focusViewport })])
         }
         onCopyThreadReference={copyThreadReference}
       />

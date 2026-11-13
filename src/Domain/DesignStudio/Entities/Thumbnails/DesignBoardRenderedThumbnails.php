@@ -31,6 +31,12 @@ class DesignBoardRenderedThumbnails extends ValueObject
     public int $height = 844;
 
     /** @var string SHA-256 of the theme's `<style>` element (of the empty string without a theme) */
+    /**
+     * @var bool Screenshot of the whole page at `width` (a device frame of a responsive board); the picture's height is
+     *      then the page height, at least `height`. false = exactly `width` × `height`
+     */
+    public bool $fullPage = false;
+
     public string $themeHash = '';
 
     /** @var string The theme's `<style data-design-theme>` element, empty = no theme */

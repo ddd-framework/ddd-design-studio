@@ -7,11 +7,16 @@ import { useState } from 'react';
 import type { DesignStudioBoardView, DesignStudioComment } from '../api/types';
 import { useDesignStudio } from '../provider/DesignStudioProvider';
 import { cx } from '../utils/cx';
+import { type DeviceViewport, viewportOfComment } from './deviceViewport';
 
-/** A pin position on a board in board pixels. */
+/**
+ * A pin position on a board: board pixels on a fixed board, page pixels at the viewport's width on a responsive one.
+ */
 export interface BoardPin {
   x: number;
   y: number;
+  /** The viewport the pin was placed in (a responsive board), null on a fixed board. */
+  viewport?: DeviceViewport | null;
 }
 
 /** Thread roots of a board with their replies, oldest first. */
@@ -94,6 +99,8 @@ interface ThreadCardProps {
   hasBoardChangedSince: boolean;
   /** The thread is deleted soon unless something happens in it ("Keep" postpones that). */
   isExpiring: boolean;
+  /** A thread pinned in a viewport (responsive board): shows the board in that viewport. */
+  onSelectViewport?: (viewport: DeviceViewport) => void;
 }
 
 const ThreadCard = ({
@@ -105,8 +112,10 @@ const ThreadCard = ({
   writesAllowed,
   hasBoardChangedSince,
   isExpiring,
+  onSelectViewport,
 }: ThreadCardProps) => {
   const { root, replies, pinNumber } = thread;
+  const rootViewport = viewportOfComment(root);
   const [replyText, setReplyText] = useState('');
   const { api, components, notify } = useDesignStudio();
   const { Badge, Button, Textarea } = components;
@@ -149,6 +158,18 @@ const ThreadCard = ({
           </Badge>
         ) : (
           <Badge variant="outline">Board</Badge>
+        )}
+        {rootViewport && (
+          <button
+            type="button"
+            className="rounded-full bg-tint px-2 py-0.5 text-xs font-medium text-muted-foreground tabular-nums hover:bg-tint-strong hover:text-foreground disabled:cursor-default"
+            title="Pinned in this viewport: show the board in it"
+            disabled={!onSelectViewport}
+            onClick={() => onSelectViewport?.(rootViewport)}
+          >
+            {rootViewport.width} × {rootViewport.height}
+            {rootViewport.deviceKey ? ` · ${rootViewport.deviceKey}` : ''}
+          </button>
         )}
         {root.isDecision && (
           <Badge variant="outline" className="border-transparent bg-success/15 text-success">
@@ -292,6 +313,8 @@ export interface BoardCommentsProps {
   pinHint: string;
   /** "Copy for agent" on a thread. */
   onCopyThreadReference: (thread: CommentThread) => void;
+  /** A thread pinned in a viewport (responsive board): shows the board in that viewport. */
+  onSelectViewport?: (viewport: DeviceViewport) => void;
 }
 
 /** Comments of one board: new thread (on the board or at a placed pin), threads with replies, resolve, decision. */
@@ -309,6 +332,7 @@ export const BoardComments = ({
   onShowResolvedChange,
   pinHint,
   onCopyThreadReference,
+  onSelectViewport,
 }: BoardCommentsProps) => {
   const [text, setText] = useState('');
   const [isDecision, setIsDecision] = useState(false);
@@ -334,6 +358,9 @@ export const BoardComments = ({
           text,
           x: pendingPin?.x ?? null,
           y: pendingPin?.y ?? null,
+          viewportWidth: pendingPin?.viewport?.width ?? null,
+          viewportHeight: pendingPin?.viewport?.height ?? null,
+          deviceKey: pendingPin?.viewport?.deviceKey ?? null,
           isDecision,
         },
       }).unwrap();
@@ -405,6 +432,7 @@ export const BoardComments = ({
           key={String(thread.root.id)}
           thread={thread}
           onCopyReference={onCopyThreadReference}
+          onSelectViewport={onSelectViewport}
           isHighlighted={highlightedCommentId === Number(thread.root.id)}
           onHighlight={() => onHighlightComment(Number(thread.root.id))}
           authAccountId={authAccountId}

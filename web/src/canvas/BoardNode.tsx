@@ -8,13 +8,23 @@ import type { DesignStudioBoardView } from '../api/types';
 import { useDesignStudio, useDesignStudioTexts } from '../provider/DesignStudioProvider';
 import { cx } from '../utils/cx';
 import { boardStatusDefinition } from './boardStatus';
-import { thumbnailVariantForZoom } from './boardDetail';
+import { type BoardThumbnailVariant, thumbnailVariantForZoom } from './boardDetail';
 import { boardCodeOf } from './boardKey';
 import { BOARD_HEADER_HEIGHT, MAX_BOARD_CANVAS_HEIGHT } from './canvasLayout';
 import { withoutContentToken } from './canvasLiveUpdate';
 import { useCanvasView } from './canvasView';
 import { useCheckedContentUrl, useImageRetry, wasContentUrlLoaded } from './useCheckedContentUrl';
 import { useDeferredMount } from './useDeferredMount';
+import {
+  FRAME_GAP,
+  FRAME_LABEL_HEIGHT,
+  type FrameHeightMode,
+  boardCanvasSize,
+  frameCanvasHeight,
+  framesOf,
+  isResponsiveBoard,
+} from './deviceViewport';
+import type { DesignDevice, DesignStudioBoardFrameView } from '../api/types';
 import { useStableContentUrl } from './stableContentUrl';
 
 export type BoardNodeData = { board: DesignStudioBoardView };
@@ -56,22 +66,27 @@ const BoardNodeComponent = ({ id, data }: NodeProps<BoardFlowNode>) => {
   const texts = useDesignStudioTexts();
   const { StatusBadge } = components;
   const statusDefinition = board.status ? boardStatusDefinition(statuses, board.status) : undefined;
-  const width = board.width ?? 390;
-  const height = board.height ?? 844;
-  // the canvas shows at most MAX_BOARD_CANVAS_HEIGHT of a board; the focus view shows it whole
-  const visibleHeight = Math.min(height, MAX_BOARD_CANVAS_HEIGHT);
-  const isCut = height > visibleHeight;
-  const thumbnailVariant = useStore(state => thumbnailVariantForZoom(state.transform[2], width));
   const {
     liveBoardIds,
     selectedBoardIds,
     matchingBoardIds,
     openThreadCounts,
     defaultStatus,
+    frameHeightMode,
+    devices,
     onSelectBoard,
     onCopyReference,
     onOpenBoard,
   } = useCanvasView();
+  const isResponsive = isResponsiveBoard(board);
+  const canvasSize = boardCanvasSize(board, frameHeightMode);
+  const width = canvasSize.width;
+  const height = canvasSize.height;
+  // the canvas shows at most MAX_BOARD_CANVAS_HEIGHT of a fixed board; the focus view shows it whole (the frames of a
+  // responsive board have their own limit, MAX_PAGE_CANVAS_HEIGHT)
+  const visibleHeight = isResponsive ? height : Math.min(height, MAX_BOARD_CANVAS_HEIGHT);
+  const isCut = height > visibleHeight;
+  const thumbnailVariant = useStore(state => thumbnailVariantForZoom(state.transform[2], width));
   const isLive = liveBoardIds.has(id);
   const isSelected = selectedBoardIds.has(id);
   const isDimmed = matchingBoardIds !== null && !matchingBoardIds.has(id);
@@ -79,7 +94,7 @@ const BoardNodeComponent = ({ id, data }: NodeProps<BoardFlowNode>) => {
   // mass mounts (a zoom across a level) are spread over frames: a plain placeholder until this node's turn
   const isReady = useDeferredMount();
   // no thumbnail in the shown look (yet): nothing to draw until the board is live
-  const isThumbnailMissing = !board.thumbnailUrl;
+  const isThumbnailMissing = !isResponsive && !board.thumbnailUrl;
   const latestThumbnailUrl = designContentUrl(
     apiBaseUrl,
     thumbnailVariant === 'small' ? (board.thumbnailSmallUrl ?? board.thumbnailUrl) : board.thumbnailUrl
@@ -212,12 +227,25 @@ const BoardNodeComponent = ({ id, data }: NodeProps<BoardFlowNode>) => {
       </div>
       <div
         className={cx(
-          'relative overflow-hidden rounded-[20px] bg-card shadow-surface-raised ring-1 ring-foreground/10',
-          isSelected && 'ring-4 ring-brand'
+          'relative',
+          isResponsive
+            ? cx('rounded-[20px]', isSelected && 'ring-4 ring-brand ring-offset-8 ring-offset-transparent')
+            : cx('overflow-hidden rounded-[20px] bg-card shadow-surface-raised ring-1 ring-foreground/10', isSelected && 'ring-4 ring-brand')
         )}
         style={{ width, height: visibleHeight }}
       >
-        {thumbnailUrl && (
+        {isResponsive && (
+          <ResponsiveBoardFrames
+            board={board}
+            frameHeightMode={frameHeightMode}
+            devices={devices}
+            thumbnailVariant={thumbnailVariant}
+            showsLiveHtml={showsLiveHtml && isReady}
+            htmlUrl={htmlUrl}
+            title={title}
+          />
+        )}
+        {!isResponsive && thumbnailUrl && (
           // biome-ignore lint/performance/noImgElement: canvas thumbnails are API images at canvas scale, next/image cannot optimise them
           <img
             key={thumbnailRetry.imageKey}
@@ -241,7 +269,7 @@ const BoardNodeComponent = ({ id, data }: NodeProps<BoardFlowNode>) => {
             {texts.thumbnailMissing}
           </span>
         )}
-        {showsLiveHtml && liveHtmlUrl && (
+        {!isResponsive && showsLiveHtml && liveHtmlUrl && (
           <iframe
             src={liveHtmlUrl}
             onLoad={() => setLoadedFrameUrl(liveHtmlUrl)}
@@ -283,3 +311,142 @@ const BoardNodeComponent = ({ id, data }: NodeProps<BoardFlowNode>) => {
 };
 
 export const BoardNode = memo(BoardNodeComponent);
+
+interface ResponsiveBoardFramesProps {
+  board: DesignStudioBoardView;
+  frameHeightMode: FrameHeightMode;
+  devices: readonly DesignDevice[];
+  thumbnailVariant: BoardThumbnailVariant;
+  /** The board is live: each frame mounts the board HTML at its width. */
+  showsLiveHtml: boolean;
+  htmlUrl: string | undefined;
+  title: string;
+}
+
+/**
+ * The device frames of a responsive board side by side: a label line (device and width) above each, the whole-page
+ * thumbnail of that width (cut at one screen in viewport mode), the live HTML at that width when the board is live.
+ */
+const ResponsiveBoardFrames = ({
+  board,
+  frameHeightMode,
+  devices,
+  thumbnailVariant,
+  showsLiveHtml,
+  htmlUrl,
+  title,
+}: ResponsiveBoardFramesProps) => {
+  let left = 0;
+  return (
+    <>
+      {framesOf(board).map(frame => {
+        const frameLeft = left;
+        left += (frame.width ?? 0) + FRAME_GAP;
+        return (
+          <ResponsiveBoardFrame
+            key={frame.deviceKey ?? frameLeft}
+            frame={frame}
+            left={frameLeft}
+            frameHeightMode={frameHeightMode}
+            deviceLabel={devices.find(device => device.deviceKey === frame.deviceKey)?.label ?? frame.deviceKey ?? ''}
+            thumbnailVariant={thumbnailVariant}
+            showsLiveHtml={showsLiveHtml}
+            htmlUrl={htmlUrl}
+            title={title}
+          />
+        );
+      })}
+    </>
+  );
+};
+
+interface ResponsiveBoardFrameProps {
+  frame: DesignStudioBoardFrameView;
+  left: number;
+  frameHeightMode: FrameHeightMode;
+  deviceLabel: string;
+  thumbnailVariant: BoardThumbnailVariant;
+  showsLiveHtml: boolean;
+  htmlUrl: string | undefined;
+  title: string;
+}
+
+const ResponsiveBoardFrame = ({
+  frame,
+  left,
+  frameHeightMode,
+  deviceLabel,
+  thumbnailVariant,
+  showsLiveHtml,
+  htmlUrl,
+  title,
+}: ResponsiveBoardFrameProps) => {
+  const { apiBaseUrl } = useDesignStudio();
+  const texts = useDesignStudioTexts();
+  const frameWidth = frame.width ?? 0;
+  const frameHeight = frameCanvasHeight(frame, frameHeightMode);
+  const latestThumbnailUrl = designContentUrl(
+    apiBaseUrl,
+    thumbnailVariant === 'small' ? (frame.thumbnailSmallUrl ?? frame.thumbnailUrl) : frame.thumbnailUrl
+  );
+  const [loadedImageUrl, setLoadedImageUrl] = useState<string | null>(null);
+  const thumbnailUrl = useStableContentUrl(latestThumbnailUrl, isSameContent(loadedImageUrl, latestThumbnailUrl));
+  const thumbnailRetry = useImageRetry(thumbnailUrl);
+  const liveHtmlUrl = useCheckedContentUrl(showsLiveHtml ? htmlUrl : undefined);
+  const isCut = frameHeightMode === 'page' && (frame.pageHeight ?? 0) > frameHeight;
+  return (
+    <div className="absolute top-0" style={{ left, width: frameWidth }}>
+      <div
+        className="flex items-end truncate pb-2 text-[17px] font-semibold text-muted-foreground tabular-nums"
+        style={{ height: FRAME_LABEL_HEIGHT }}
+        title={`${deviceLabel} · ${frameWidth} × ${frame.height ?? 0}`}
+      >
+        {thumbnailVariant === 'small' ? '' : `${deviceLabel} · ${frameWidth}`}
+      </div>
+      <div
+        className="relative overflow-hidden rounded-[20px] bg-card shadow-surface-raised ring-1 ring-foreground/10"
+        style={{ width: frameWidth, height: frameHeight }}
+      >
+        {thumbnailUrl && (
+          // biome-ignore lint/performance/noImgElement: canvas thumbnails are API images at canvas scale
+          <img
+            key={thumbnailRetry.imageKey}
+            src={thumbnailUrl}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            draggable={false}
+            onError={thumbnailRetry.onError}
+            onLoad={() => setLoadedImageUrl(thumbnailUrl)}
+            className={cx(
+              'pointer-events-none absolute inset-x-0 top-0 w-full select-none',
+              thumbnailRetry.isFailed && 'invisible'
+            )}
+          />
+        )}
+        {!frame.thumbnailUrl && !(showsLiveHtml && liveHtmlUrl) && thumbnailVariant !== 'small' && (
+          <span className="pointer-events-none absolute inset-0 flex items-center justify-center px-6 text-center text-[17px] font-semibold text-muted-foreground">
+            {texts.thumbnailMissing}
+          </span>
+        )}
+        {showsLiveHtml && liveHtmlUrl && (
+          <iframe
+            src={liveHtmlUrl}
+            title={`${title} · ${deviceLabel}`}
+            sandbox=""
+            referrerPolicy="no-referrer"
+            loading="lazy"
+            width={frameWidth}
+            height={frameHeight}
+            className="pointer-events-none absolute inset-0 border-0 bg-transparent"
+          />
+        )}
+        {isCut && (
+          <span className="pointer-events-none absolute inset-x-0 bottom-0 flex h-40 items-end justify-center bg-gradient-to-t from-card to-transparent pb-4 text-[16px] font-semibold text-muted-foreground">
+            ↓ {Math.round(frame.pageHeight ?? 0)} px — full length in the focus view
+          </span>
+        )}
+      </div>
+    </div>
+  );
+};

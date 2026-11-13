@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace DDD\Domain\DesignStudio\Services;
 
 use DDD\Domain\DesignStudio\Entities\Comments\DesignStudioComment;
+use DDD\Domain\DesignStudio\Entities\Comments\DesignStudioCommentViewport;
 use DDD\Domain\DesignStudio\Entities\Comments\DesignStudioComments;
 use DDD\Domain\DesignStudio\Entities\Definitions\DesignCanvasDefinition;
 use DDD\Domain\DesignStudio\Entities\Directory\DesignDirectoryBoard;
@@ -135,6 +136,8 @@ class DesignStudioCommentsService extends EntitiesService
      * @param bool $isDecision
      * @param string $authorKind DesignStudioComment::AUTHOR_KIND_*
      * @param string|null $authorName overrides the account's display name (agents)
+     * @param DesignStudioCommentViewport|null $designStudioCommentViewport the viewport the pin was placed in (a
+     *                                                                       responsive board); null = board pixels
      * @return DesignStudioComment
      * @throws BadRequestException
      * @throws ForbiddenException
@@ -152,7 +155,8 @@ class DesignStudioCommentsService extends EntitiesService
         ?float $y,
         bool $isDecision,
         string $authorKind,
-        ?string $authorName = null
+        ?string $authorName = null,
+        ?DesignStudioCommentViewport $designStudioCommentViewport = null
     ): DesignStudioComment {
         $this->requireMayComment($isDecision);
         $designStudioComment = $this->createComment($text, $authorKind, $authorName);
@@ -162,6 +166,9 @@ class DesignStudioCommentsService extends EntitiesService
         $designStudioComment->contentHash = $designDirectoryBoard->contentHash;
         $designStudioComment->x = $x;
         $designStudioComment->y = $y;
+        $designStudioComment->viewportWidth = $designStudioCommentViewport?->width;
+        $designStudioComment->viewportHeight = $designStudioCommentViewport?->height;
+        $designStudioComment->deviceKey = $designStudioCommentViewport?->deviceKey;
         $designStudioComment->isDecision = $isDecision;
         $designStudioComment->lastActivityAt = new DateTime();
 

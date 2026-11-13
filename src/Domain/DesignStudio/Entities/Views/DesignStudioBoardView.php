@@ -59,4 +59,16 @@ class DesignStudioBoardView extends ValueObject
 
     /** @var string|null URL of the reduced thumbnail for far zoom levels, null when there is none (yet) */
     public ?string $thumbnailSmallUrl = null;
+
+    /** @var bool The layout adapts to the viewport width: the board is shown in device frames */
+    public bool $isResponsive = false;
+
+    /**
+     * @var DesignStudioBoardFrameViews|null The device frames of a responsive board, side by side on the canvas (width
+     *      and height of the board are then the extent of the frames in viewport mode); null for a fixed board
+     */
+    public ?DesignStudioBoardFrameViews $frames = null;
+
+    /** @var string|null Path of the board's page in the site view (`/`, `/pricing`), null = no page */
+    public ?string $route = null;
 }

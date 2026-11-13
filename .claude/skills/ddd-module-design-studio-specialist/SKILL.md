@@ -1,9 +1,9 @@
 ---
 name: ddd-module-design-studio-specialist
-description: "Installs, wires and operates the ddd-design-studio module, a review studio for the HTML design boards of a checkout. Covers the directory model (canvas.json, board files, version = git blob hash), board images from the canvas assets folder instead of base64, config DesignStudio projects, api, content, statuses, retention, storage, renderer, thin controllers on the three traits, the public content route and its token, object storage, the optional thumbnail renderer (Messenger handler, worker), binding DesignAccessPolicyService and DesignThemeProviderService, board codes (APP ONB-W2) and code links, and app:design-studio:show, comments, comments-poll, decisions, status, theme, thumbnails, prune. Use when installing the studio, adding a canvas, putting photos into boards, linking to a board, answering design comments as an agent, setting a board status, requesting thumbnails, or debugging an empty canvas, a missing board or image, No handler for message, missing thumbnails or a 404 on board content."
+description: "Installs, wires and operates the ddd-design-studio module, a review studio for a checkout's HTML design boards. Covers the directory model (canvas.json, board files, git blob hash), assets-folder images, responsive boards in device frames (devices config, fullPage renderer), config DesignStudio projects, api, content, statuses, retention, storage, renderer, thin controllers on the three traits, the token-guarded content route, object storage, the optional thumbnail renderer and worker, binding the access policy and theme provider, board codes (APP ONB-W2) and code links, and app:design-studio:show, comments, comments-poll, decisions, status, theme, thumbnails, prune. Use when installing the studio, adding a canvas, putting photos into boards, marking a board responsive, linking to a board, answering design comments as an agent, setting a board status, requesting thumbnails, or debugging an empty canvas, a missing board or image, No handler for message, missing thumbnails or a 404 on board content."
 metadata:
   author: mgamadeus
-  version: "0.3.2"
+  version: "0.4.0"
   module: mgamadeus/ddd-design-studio
 ---
 
@@ -153,6 +153,28 @@ return [
 Board defaults: `x` / `y` 0, `w` 390, `h` 844, `title` = file name. A board belongs to the lowest section title with
 `y <= board.y`. An entry is skipped silently when its key is not a plain `.html` file name, starts with a dot or does
 not match the canvas' `boards` patterns. A missing or oversized file is left out with a warning.
+
+## Responsive boards
+
+A board whose layout adapts to the width is marked responsive: `"responsive": true` on the board (or on the canvas for
+all boards), or `<meta name="design-responsive">` in the file. Its frames: `"devices": [...]` of the board, else of the
+canvas, else `DesignStudio.devices.defaultFrameDeviceKeys` (presets in `config/app/DesignStudio/devices.php`; unknown
+keys are left out). `w` / `h` do not apply then. `"route": "/pricing"` (or `<meta name="design-route" content="…">`)
+names the board's page in the site view.
+
+```json
+{ "devices": ["desktop-1440", "iphone-16"],
+  "boards": { "home.html": { "x": 0, "y": 0, "responsive": true, "route": "/" } } }
+```
+
+- Canvas: one frame per device side by side; toolbar switch one screen / whole page. Focus view and present mode:
+  device picker, rotate, free width (drag handle), device frame; the viewport stays while stepping.
+- Thumbnails: one per frame, rendered with `fullPage: true` at the device width (the renderer must support the field,
+  `renderer/README.md`; without it a frame shows one screen). The frame width is part of the thumbnail key.
+- Comments: a pin keeps its viewport (`viewportWidth`, `viewportHeight`, `deviceKey`; three nullable columns of
+  `DesignStudioComments`, no index) and shows at that width only. An agent pins on a responsive board with
+  `app:design-studio:comments <project> <canvas> --new="…" --board=home.html --x=120 --y=640 --viewport=393x852
+  --device=iphone-16`; the design reference and the console print `viewport 393x852 iphone-16`.
 
 ## Images in boards: `assets/`
 
