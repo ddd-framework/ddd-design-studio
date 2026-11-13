@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.1
+
+- `app:design-studio:thumbnails` counts pictures: a responsive board has one per device frame ("N of M pictures have a
+  thumbnail (B boards, F device frames …)"); before, it subtracted frame pictures from the board count.
+- The site view opens a page in its widest device frame (a website is looked at on a desktop first), not in its first
+  frame; a device picked in the site view stays while navigating.
+
 ## 0.5.0
 
 **Site view: a canvas as a clickable website.**

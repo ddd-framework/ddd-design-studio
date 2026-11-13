@@ -3,7 +3,7 @@ name: ddd-module-design-studio-specialist
 description: "Installs, wires and operates ddd-design-studio, a review studio for a checkout's HTML design boards. Covers canvas.json, board files and versions, assets-folder images, responsive boards in device frames (devices config, fullPage renderer), the site view (routes), the DesignStudio config files, thin controllers on the three traits, the token-guarded content route, object storage, the optional thumbnail renderer and worker, binding the access policy and theme provider, board codes (APP ONB-W2) and code links, and app:design-studio:show, comments, comments-poll, decisions, status, theme, thumbnails, prune. Use when installing the studio, adding a canvas, putting photos into boards, marking a board responsive, opening a canvas as a website, linking to a board, answering design comments as an agent, setting a board status, requesting thumbnails, or debugging an empty canvas, a missing board or image, No handler for message, missing thumbnails or a 404 on board content."
 metadata:
   author: mgamadeus
-  version: "0.5.0"
+  version: "0.5.1"
   module: mgamadeus/ddd-design-studio
 ---
 
@@ -315,7 +315,7 @@ Off by default (`DesignStudio.renderer.enabled` = `false`): the canvas view then
 5. Check and request:
 
    ```bash
-   php bin/console app:design-studio:thumbnails app onboarding                    # "N of M boards have a thumbnail" + newest request
+   php bin/console app:design-studio:thumbnails app onboarding                    # "N of M pictures have a thumbnail" (boards + device frames) + newest request
    php bin/console app:design-studio:thumbnails app onboarding --render           # files a request for the missing ones
    php bin/console app:design-studio:thumbnails app onboarding --theme=brand:1:dark --render
    ```

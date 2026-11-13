@@ -540,7 +540,7 @@ account must pass the access policy. Boards are the files of the checkout the co
 | `app:design-studio:decisions` | `project canvas` | — | the decisions log (decision threads with their replies) as Markdown |
 | `app:design-studio:status` | `project canvas board status` | `--as=<name>` (default `Agent`) | sets the review status of a board |
 | `app:design-studio:theme` | `[theme]` | `--search=<text>` | without argument: lists the themes; with a theme reference: prints its `<style>` element |
-| `app:design-studio:thumbnails` | `project canvas` | `--theme=<reference>`, `--render` | reports how many boards have a thumbnail in the look and the newest render request; `--render` files a request for the missing ones |
+| `app:design-studio:thumbnails` | `project canvas` | `--theme=<reference>`, `--render` | reports how many pictures (fixed boards and device frames of responsive boards) have a thumbnail in the look and the newest render request; `--render` files a request for the missing ones |
 | `app:design-studio:prune` | — | `--dryRun` | deletes expired threads (or reports them) and lists the ones expiring soon |
 
 Examples:

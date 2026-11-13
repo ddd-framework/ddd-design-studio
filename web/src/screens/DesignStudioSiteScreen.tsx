@@ -8,7 +8,7 @@ import { BoardComments, type BoardPin, buildCommentThreads } from '../canvas/Boa
 import { buildThemeReference, type ThemeMode } from '../canvas/designTheme';
 import {
   type DeviceViewport,
-  initialViewportForBoard,
+  siteViewportForBoard,
   isPinInViewport,
   isResponsiveBoard,
   viewportWithWidth,
@@ -59,10 +59,10 @@ export const DesignStudioSiteScreen = ({ projectKey, canvasKey, route }: DesignS
   const currentRoute = startRouteOf(pages, route);
   const board = currentRoute !== null ? (pages.get(currentRoute) ?? null) : null;
 
-  // the viewport: the device picked here (kept while navigating), else the page's first frame, else its own width
+  // the viewport: the device picked here (kept while navigating), else the page's widest frame, else its own width
   const [chosenViewport, setChosenViewport] = useState<DeviceViewport | null>(null);
   const viewport: DeviceViewport | null =
-    initialViewportForBoard(board, chosenViewport) ??
+    siteViewportForBoard(board, chosenViewport) ??
     (board ? chosenViewport ?? { width: board.width ?? 390, height: board.height ?? 844, deviceKey: null } : null);
   const [pageScrollTop, setPageScrollTop] = useState(0);
   const [showsDeviceFrame, setShowsDeviceFrame] = useState(false);

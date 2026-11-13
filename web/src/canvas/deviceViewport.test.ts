@@ -7,6 +7,7 @@ import {
   FRAME_LABEL_HEIGHT,
   boardCanvasSize,
   initialViewportForBoard,
+  siteViewportForBoard,
   isPinInViewport,
   pageHeightAtWidth,
   rotateViewport,
@@ -38,6 +39,14 @@ describe('deviceViewport', () => {
     const chosen = { width: 393, height: 852, deviceKey: 'iphone-16' };
     assert.equal(initialViewportForBoard(responsiveBoard, chosen), chosen);
     assert.equal(initialViewportForBoard({ boardKey: 'fixed.html' }, chosen), null);
+  });
+
+  it('opens the site view in the widest frame', () => {
+    const phoneFirst: DesignStudioBoardView = {
+      isResponsive: true,
+      frames: { elements: [{ deviceKey: 'iphone-se', width: 375, height: 667 }, { deviceKey: 'desktop-1440', width: 1440, height: 900 }] },
+    };
+    assert.deepEqual(siteViewportForBoard(phoneFirst, null), { width: 1440, height: 900, deviceKey: 'desktop-1440' });
   });
 
   it('rotates to the matching preset or to a free size, and a dragged width leaves the preset', () => {

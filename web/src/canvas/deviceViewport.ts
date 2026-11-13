@@ -55,6 +55,20 @@ export const initialViewportForBoard = (
   return { width: firstFrame.width ?? 0, height: firstFrame.height ?? 0, deviceKey: firstFrame.deviceKey ?? null };
 };
 
+/**
+ * The viewport the site view opens a page in: its widest frame (a website is first looked at on a desktop), the
+ * current one when one was picked.
+ */
+export const siteViewportForBoard = (
+  board: DesignStudioBoardView | null | undefined,
+  current: DeviceViewport | null
+): DeviceViewport | null => {
+  if (!isResponsiveBoard(board)) return null;
+  if (current) return current;
+  const widestFrame = framesOf(board).reduce((widest, frame) => ((frame.width ?? 0) > (widest.width ?? 0) ? frame : widest));
+  return { width: widestFrame.width ?? 0, height: widestFrame.height ?? 0, deviceKey: widestFrame.deviceKey ?? null };
+};
+
 /** Landscape ↔ portrait: width and height swapped; the preset with exactly that size when there is one. */
 export const rotateViewport = (viewport: DeviceViewport, devices: readonly DesignDevice[]): DeviceViewport => {
   const rotated = { width: viewport.height, height: viewport.width };

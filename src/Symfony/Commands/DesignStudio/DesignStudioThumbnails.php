@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace DDD\Symfony\Commands\DesignStudio;
 
+use DDD\Domain\DesignStudio\Entities\Directory\DesignDirectoryBoard;
 use DDD\Domain\DesignStudio\Services\DesignDirectoryReaderService;
 use DDD\Domain\DesignStudio\Services\DesignStudioThumbnailRenderRequestsService;
 use DDD\Domain\DesignStudio\Services\DesignStudioThumbnailsService;
@@ -48,10 +49,18 @@ class DesignStudioThumbnails extends DesignStudioCommand
         $themeHash = DesignThemeProviderService::computeThemeHash($designThemeProviderService->getThemeStyleForReference($themeReference));
         $designDirectoryBoards = $designDirectoryReaderService->readCanvas($canvasDefinition)->boards;
         $boardsWithoutThumbnail = $designStudioThumbnailsService->findBoardsWithoutThumbnail($designDirectoryBoards, $themeHash);
+        // a responsive board has one picture per device frame: count pictures, name boards and frames
+        $renderTargets = $designStudioThumbnailsService->expandRenderTargets($designDirectoryBoards);
+        $frameCount = count(array_filter(
+            $renderTargets->getElements(),
+            static fn(DesignDirectoryBoard $renderTarget): bool => $renderTarget->frameDeviceKey !== null
+        ));
         $output->writeln(sprintf(
-            '%d of %d boards have a thumbnail (renderer %s, theme hash %s)',
-            $designDirectoryBoards->count() - $boardsWithoutThumbnail->count(),
+            '%d of %d pictures have a thumbnail (%d boards%s; renderer %s, theme hash %s)',
+            $renderTargets->count() - $boardsWithoutThumbnail->count(),
+            $renderTargets->count(),
             $designDirectoryBoards->count(),
+            $frameCount > 0 ? ", $frameCount device frames of responsive boards" : '',
             $designStudioThumbnailsService->getRendererVersion(),
             substr($themeHash, 0, 10)
         ));
