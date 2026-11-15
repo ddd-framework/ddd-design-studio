@@ -1,6 +1,6 @@
 {
   "name": "design-board-renderer",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "private": true,
   "description": "Example thumbnail renderer of ddd-design-studio: board HTML + themes in, PNGs out; a board as SVG (Playwright / Chromium + pdftocairo, no network).",
   "main": "server.js",

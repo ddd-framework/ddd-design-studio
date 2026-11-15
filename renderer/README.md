@@ -91,7 +91,9 @@ region). What a PDF cannot hold is lost or simplified — `backdrop-filter` (gla
 can sit 1–2 px apart from the raster picture. Conic gradients are drawn as pictures (2×) before the print (renderer
 1.2.1): as PDF shadings they made the conversion wrap the whole page into a compositing filter that browsers draw with
 light boxes and edge lines. A rectangle in the colour of the board's edge lies under everything, so a hairline the
-print leaves uncovered does not show white on a dark board. `differingPixelRatio` is the share of pixels whose colour differs by more
+print leaves uncovered does not show white on a dark board. A picture shown far smaller than it is (a 320 px photo in a 42 px
+circle) is scaled to twice its shown size before the print (renderer 1.2.2) — JPEG without transparency, else PNG —
+so the SVG does not embed it at its own size as PNG. `differingPixelRatio` is the share of pixels whose colour differs by more
 than 48 (sum over R, G, B) between the raster picture and the SVG; the comparison picture shows where. Photos, maps and
 gradients stay raster inside the SVG: such a board's SVG is larger than its PNG or WebP. The SVG carries no element ids
 of the board (the PDF path loses the document structure).

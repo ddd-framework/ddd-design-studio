@@ -349,6 +349,54 @@ const rasterizeConicGradientBackgrounds = async (context, page) => {
   return backgrounds.length;
 };
 
+/** JPEG quality of a picture without transparency that the vector job scales down before the print. */
+const DOWNSCALED_PICTURE_JPEG_QUALITY = 0.85;
+
+/**
+ * Pictures far larger than they are shown (a 320 px photo in a 42 px circle): the PDF — and so the SVG — would embed
+ * them at their own size, as PNG. Each `<img>` whose natural size is more than RASTERIZED_BACKGROUND_SCALE times its
+ * shown size is replaced by a copy at that scale (its shown size fixed first, so the layout does not move): JPEG when it
+ * has no transparent pixel, else PNG. Returns how many pictures were replaced.
+ * @returns {Promise<number>}
+ */
+const downscaleOversizedPictures = page =>
+  page.evaluate(
+    ([scale, jpegQuality]) => {
+      let replacedCount = 0;
+      for (const image of document.querySelectorAll('img')) {
+        const rect = image.getBoundingClientRect();
+        if (!image.complete || image.naturalWidth === 0 || rect.width < 1 || rect.height < 1) continue;
+        const factor = Math.min(1, scale * Math.max(rect.width / image.naturalWidth, rect.height / image.naturalHeight));
+        if (factor > 0.5) continue;
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(image.naturalWidth * factor));
+        canvas.height = Math.max(1, Math.round(image.naturalHeight * factor));
+        const context2d = canvas.getContext('2d');
+        context2d.drawImage(image, 0, 0, canvas.width, canvas.height);
+        let pixels;
+        try {
+          pixels = context2d.getImageData(0, 0, canvas.width, canvas.height).data;
+        } catch {
+          continue; // a picture the canvas may not read stays as it is
+        }
+        let hasTransparency = false;
+        for (let offset = 3; offset < pixels.length; offset += 4) {
+          if (pixels[offset] < 255) {
+            hasTransparency = true;
+            break;
+          }
+        }
+        image.style.setProperty('width', `${rect.width}px`, 'important');
+        image.style.setProperty('height', `${rect.height}px`, 'important');
+        image.removeAttribute('srcset');
+        image.src = hasTransparency ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', jpegQuality);
+        replacedCount++;
+      }
+      return replacedCount;
+    },
+    [RASTERIZED_BACKGROUND_SCALE, DOWNSCALED_PICTURE_JPEG_QUALITY]
+  );
+
 /**
  * One board in one theme as a vector graphic: Chromium prints the board as a one-page PDF (screen media, backgrounds
  * on) and `pdftocairo` (poppler) converts it to SVG — text as glyph outlines, pictures embedded, no external reference,
@@ -411,6 +459,11 @@ const renderBoardVector = async (browser, job, options = {}) => {
     });
     // after the raster picture: the comparison shows what the replacement changes
     await rasterizeConicGradientBackgrounds(context, page);
+    if ((await downscaleOversizedPictures(page)) > 0) {
+      await page.evaluate(async () => {
+        await Promise.all([...document.images].map(image => (image.complete ? null : image.decode().catch(() => null))));
+      });
+    }
     // the page exactly as large as the board: without it Chromium rounds the paper size up to a hundredth of an inch
     await page.addStyleTag({ content: `@page{size:${width}px ${pictureHeight}px;margin:0}` });
     const pdf = await page.pdf({

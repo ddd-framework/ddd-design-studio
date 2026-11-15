@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.2
+
+- **Smaller SVG of boards with photos (renderer 1.2.2):** an `<img>` shown far smaller than its own size is scaled to
+  twice its shown size before the PDF print (JPEG without transparency, else PNG; its shown size is fixed first, so the
+  layout does not move). Since 1.2.1 a 320 px photo in a 42 px circle was embedded at its own size as PNG — a dark home
+  board grew from 160 KB to 234 KB (gzip 111 KB); now 166 KB (gzip 58 KB), the comparison unchanged. Rebuild and roll
+  out the renderer image; the packages change only their version.
+
 ## 0.7.1
 
 - **SVG export of dark boards (renderer 1.2.1):** a conic gradient (a rainbow ring) no longer gets a light box and a
