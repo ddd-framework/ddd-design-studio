@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.1
+
+- **SVG export of dark boards (renderer 1.2.1):** a conic gradient (a rainbow ring) no longer gets a light box and a
+  light line in the SVG, and no light hairline shows at the right and bottom edge. Conic gradients are now drawn as
+  pictures (2×) before the PDF print — as PDF shadings they made the conversion wrap the whole page into a compositing
+  filter — and a rectangle in the colour of the board's edge lies under the SVG. Rebuild and roll out the renderer
+  image; the Composer and npm packages are unchanged apart from the version.
+
 ## 0.7.0
 
 - **A board as SVG:** `app:design-studio:export <project> <canvas> <board> --format=svg [--theme] [--out] [--region]

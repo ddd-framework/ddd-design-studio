@@ -140,16 +140,22 @@ const compactSvgNumbers = svg =>
 /**
  * The converted SVG sized in CSS pixels (as an `<img>` shows it without width / height) and cut to the region: the root
  * element's width / height become the region's pixels, its viewBox the region in points. Content outside the region
- * stays in the file but is not shown.
+ * stays in the file but is not shown. With `pageBackgroundColor` a rectangle of that colour lies under everything.
  */
-const sizeSvgToRegion = (svg, region) => {
+const sizeSvgToRegion = (svg, region, pageBackgroundColor = null) => {
   const rootMatch = /<svg\b[^>]*>/.exec(svg);
   if (!rootMatch) throw new Error('the conversion returned no svg element');
-  const viewBox = [region.x, region.y, region.width, region.height].map(value => +(value * POINTS_PER_PIXEL).toFixed(3)).join(' ');
+  const viewBoxValues = [region.x, region.y, region.width, region.height].map(value => +(value * POINTS_PER_PIXEL).toFixed(3));
+  const viewBox = viewBoxValues.join(' ');
   const root = rootMatch[0]
     .replace(/\s(width|height|viewBox)="[^"]*"/g, '')
     .replace(/^<svg\b/, `<svg width="${region.width}" height="${region.height}" viewBox="${viewBox}"`);
-  return svg.slice(0, rootMatch.index) + root + svg.slice(rootMatch.index + rootMatch[0].length);
+  // the page's background under everything: the print can leave a hairline uncovered at the right and bottom edge,
+  // which shows white on a dark board
+  const backgroundRect = pageBackgroundColor
+    ? `\n<rect x="${viewBoxValues[0]}" y="${viewBoxValues[1]}" width="${viewBoxValues[2]}" height="${viewBoxValues[3]}" fill="${pageBackgroundColor}"/>`
+    : '';
+  return svg.slice(0, rootMatch.index) + root + backgroundRect + svg.slice(rootMatch.index + rootMatch[0].length);
 };
 
 /**
@@ -229,6 +235,120 @@ const compareSvgWithRaster = async (context, rasterPng, svg, width, height) => {
   }
 };
 
+/** Scale the backgrounds that are drawn as pictures before the PDF are rendered at (sharp on a 2× screen). */
+const RASTERIZED_BACKGROUND_SCALE = 2;
+
+/**
+ * Backgrounds a PDF cannot hold as vectors without breaking the SVG — conic gradients: Chromium writes them as a shading
+ * group, and the SVG conversion then wraps the WHOLE page into a compositing filter that browsers draw with light
+ * boxes and edge lines. Each such background is drawn on its own (its element's size and rounded corners, transparent
+ * around it, RASTERIZED_BACKGROUND_SCALE) in a second page and put back as a picture; the element's other properties
+ * stay. Returns how many backgrounds were replaced.
+ * @returns {Promise<number>}
+ */
+const rasterizeConicGradientBackgrounds = async (context, page) => {
+  const backgrounds = await page.evaluate(() => {
+    const found = [];
+    let index = 0;
+    for (const element of document.querySelectorAll('*')) {
+      const style = getComputedStyle(element);
+      if (!style.backgroundImage.includes('conic-gradient(')) continue;
+      const rect = element.getBoundingClientRect();
+      if (rect.width < 1 || rect.height < 1) continue;
+      const marker = `background-${index++}`;
+      element.setAttribute('data-design-renderer-background', marker);
+      found.push({
+        marker,
+        width: rect.width,
+        height: rect.height,
+        backgroundImage: style.backgroundImage,
+        backgroundSize: style.backgroundSize,
+        backgroundPosition: style.backgroundPosition,
+        backgroundRepeat: style.backgroundRepeat,
+        backgroundOrigin: style.backgroundOrigin,
+        backgroundClip: style.backgroundClip,
+        borderRadius: style.borderRadius,
+        borderWidth: style.borderWidth,
+        borderStyle: style.borderStyle,
+        borderColor: 'transparent',
+      });
+    }
+    return found;
+  });
+  if (backgrounds.length === 0) return 0;
+  // a context of its own: the board's context renders at scale 1
+  const backgroundContext = await context.browser().newContext({
+    viewport: { width: 100, height: 100 },
+    deviceScaleFactor: RASTERIZED_BACKGROUND_SCALE,
+  });
+  try {
+    await backgroundContext.route('**/*', route => route.abort('blockedbyclient'));
+    const backgroundPage = await backgroundContext.newPage();
+    for (const background of backgrounds) {
+      const width = Math.ceil(background.width);
+      const height = Math.ceil(background.height);
+      await backgroundPage.setContent(
+        '<!doctype html><html><body style="margin:0;background:transparent"><div id="background"></div></body></html>'
+      );
+      await backgroundPage.evaluate(([background, width, height]) => {
+        const element = document.getElementById('background');
+        Object.assign(element.style, {
+          boxSizing: 'border-box',
+          width: `${background.width}px`,
+          height: `${background.height}px`,
+          backgroundImage: background.backgroundImage,
+          backgroundSize: background.backgroundSize,
+          backgroundPosition: background.backgroundPosition,
+          backgroundRepeat: background.backgroundRepeat,
+          backgroundOrigin: background.backgroundOrigin,
+          backgroundClip: background.backgroundClip,
+          borderRadius: background.borderRadius,
+          borderWidth: background.borderWidth,
+          borderStyle: background.borderStyle,
+          borderColor: background.borderColor,
+        });
+        document.documentElement.style.width = `${width}px`;
+        document.documentElement.style.height = `${height}px`;
+      }, [background, width, height]);
+      const picture = await backgroundPage.screenshot({
+        clip: { x: 0, y: 0, width: background.width, height: background.height },
+        omitBackground: true,
+        type: 'png',
+        scale: 'device',
+      });
+      await page.evaluate(([marker, pictureUrl]) => {
+        const element = document.querySelector(`[data-design-renderer-background="${marker}"]`);
+        if (!element) return;
+        element.style.setProperty('background-image', `url("${pictureUrl}")`, 'important');
+        element.style.setProperty('background-size', '100% 100%', 'important');
+        element.style.setProperty('background-position', '0 0', 'important');
+        element.style.setProperty('background-repeat', 'no-repeat', 'important');
+        element.style.setProperty('background-origin', 'border-box', 'important');
+        element.style.setProperty('background-clip', 'border-box', 'important');
+        element.removeAttribute('data-design-renderer-background');
+      }, [background.marker, 'data:image/png;base64,' + picture.toString('base64')]);
+    }
+  } finally {
+    await backgroundContext.close().catch(() => {});
+  }
+  await page.evaluate(async () => {
+    await Promise.all(
+      [...document.querySelectorAll('[style*="data:image/png"]')].map(
+        element =>
+          new Promise(resolve => {
+            const match = /url\("([^"]+)"\)/.exec(element.style.backgroundImage);
+            if (!match) return resolve();
+            const image = new Image();
+            image.onload = image.onerror = () => resolve();
+            image.src = match[1];
+          })
+      )
+    );
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
+  return backgrounds.length;
+};
+
 /**
  * One board in one theme as a vector graphic: Chromium prints the board as a one-page PDF (screen media, backgrounds
  * on) and `pdftocairo` (poppler) converts it to SVG — text as glyph outlines, pictures embedded, no external reference,
@@ -277,6 +397,20 @@ const renderBoardVector = async (browser, job, options = {}) => {
     if (options.signal?.aborted) throw new Error('aborted');
     const png = await page.screenshot({ clip: region, fullPage: job.fullPage === true, type: 'png' });
     await page.emulateMedia({ media: 'screen' });
+    // the colour the board shows at its edge: the background of the element at the bottom-right corner, else of its
+    // nearest ancestor with one, else the root's, else white (the print can leave a hairline uncovered there)
+    const pageBackgroundColor = await page.evaluate(() => {
+      const isVisible = color => Boolean(color) && color !== 'transparent' && !/rgba\([^)]*,\s*0\)$/.test(color);
+      let element = document.elementFromPoint(window.innerWidth - 1, window.innerHeight - 1);
+      while (element) {
+        const color = getComputedStyle(element).backgroundColor;
+        if (isVisible(color)) return color;
+        element = element.parentElement;
+      }
+      return 'rgb(255, 255, 255)';
+    });
+    // after the raster picture: the comparison shows what the replacement changes
+    await rasterizeConicGradientBackgrounds(context, page);
     // the page exactly as large as the board: without it Chromium rounds the paper size up to a hundredth of an inch
     await page.addStyleTag({ content: `@page{size:${width}px ${pictureHeight}px;margin:0}` });
     const pdf = await page.pdf({
@@ -292,7 +426,7 @@ const renderBoardVector = async (browser, job, options = {}) => {
     await fs.promises.writeFile(pdfPath, pdf);
     if (options.signal?.aborted) throw new Error('aborted');
     await runPdfToSvg(pdfPath, svgPath);
-    const svg = sizeSvgToRegion(compactSvgNumbers(await fs.promises.readFile(svgPath, 'utf8')), region);
+    const svg = sizeSvgToRegion(compactSvgNumbers(await fs.promises.readFile(svgPath, 'utf8')), region, pageBackgroundColor);
     const { differingPixelRatio, comparison } = await compareSvgWithRaster(context, png, svg, region.width, region.height);
     return { svg, png, comparison, differingPixelRatio, width: region.width, height: region.height };
   } finally {

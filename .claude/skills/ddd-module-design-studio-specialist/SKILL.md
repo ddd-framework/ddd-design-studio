@@ -3,7 +3,7 @@ name: ddd-module-design-studio-specialist
 description: "Installs, wires and operates ddd-design-studio, a review studio for a checkout's HTML design boards. Covers canvas.json, boards and versions, assets-folder images, board scripts, responsive boards in device frames, the site view, the DesignStudio config files, thin controllers on the three traits, the token-guarded content route, object storage, the optional renderer (thumbnails, SVG export) and worker, access policy and theme provider, board codes (APP ONB-W2), and app:design-studio:show, comments, comments-poll, decisions, status, theme, thumbnails, export, prune. Use when installing the studio, adding a canvas, putting photos into boards, running board JavaScript, marking a board responsive, opening a canvas as a website, linking to a board, answering design comments as an agent, setting a board status, requesting thumbnails, exporting a board as SVG, or debugging an empty canvas, a missing board or image, No handler for message, missing thumbnails or a 404 on board content."
 metadata:
   author: mgamadeus
-  version: "0.7.0"
+  version: "0.7.1"
   module: mgamadeus/ddd-design-studio
 ---
 
