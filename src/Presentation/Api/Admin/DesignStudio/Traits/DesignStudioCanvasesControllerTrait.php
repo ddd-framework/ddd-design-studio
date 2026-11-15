@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace DDD\Presentation\Api\Admin\DesignStudio\Traits;
 
+use DDD\Domain\DesignStudio\Services\DesignStudioBoardExportsService;
 use DDD\Domain\DesignStudio\Services\DesignStudioBoardStatusesService;
 use DDD\Domain\DesignStudio\Services\DesignStudioCanvasViewsService;
 use DDD\Domain\DesignStudio\Services\DesignStudioThumbnailRenderRequestsService;
@@ -11,6 +12,8 @@ use DDD\Domain\DesignStudio\Services\DesignThemeProviderService;
 use DDD\Presentation\Api\Admin\DesignStudio\Dtos\DesignStudioBoardRequestDto;
 use DDD\Presentation\Api\Admin\DesignStudio\Dtos\DesignStudioBoardStatusGetResponseDto;
 use DDD\Presentation\Api\Admin\DesignStudio\Dtos\DesignStudioBoardStatusPatchRequestDto;
+use DDD\Presentation\Api\Admin\DesignStudio\Dtos\DesignStudioBoardSvgExportPostRequestDto;
+use DDD\Presentation\Api\Admin\DesignStudio\Dtos\DesignStudioBoardSvgExportPostResponseDto;
 use DDD\Presentation\Api\Admin\DesignStudio\Dtos\DesignStudioCanvasGetRequestDto;
 use DDD\Presentation\Api\Admin\DesignStudio\Dtos\DesignStudioCanvasGetResponseDto;
 use DDD\Presentation\Api\Admin\DesignStudio\Dtos\DesignStudioCanvasRevisionGetResponseDto;
@@ -27,6 +30,7 @@ use DDD\Presentation\Base\Router\Routes\Get;
 use DDD\Presentation\Base\Router\Routes\Patch;
 use DDD\Presentation\Base\Router\Routes\Post;
 use Doctrine\ORM\Exception\ORMException;
+use ImagickException;
 use Doctrine\ORM\NonUniqueResultException;
 use Doctrine\ORM\OptimisticLockException;
 use Psr\Cache\InvalidArgumentException;
@@ -206,6 +210,44 @@ trait DesignStudioCanvasesControllerTrait
         $designDirectoryBoard = $designStudioCanvasViewsService->getDirectoryBoard($canvasDefinition, $requestDto->boardKey);
         $responseDto = new DesignStudioBoardStatusGetResponseDto();
         $responseDto->designStudioBoardStatus = $designStudioBoardStatusesService->setStatus($canvasDefinition, $designDirectoryBoard, $statusDto->status);
+        return $responseDto;
+    }
+
+    /**
+     * Exports a board of the checkout as SVG through the renderer (renderer 1.2.0): the SVG, its size next to the raster
+     * picture's, the share of differing pixels and a comparison picture. Nothing is stored.
+     * @param DesignStudioBoardRequestDto $requestDto
+     * @param DesignStudioBoardSvgExportPostRequestDto $exportDto
+     * @param DesignStudioCanvasViewsService $designStudioCanvasViewsService
+     * @param DesignStudioBoardExportsService $designStudioBoardExportsService
+     * @return DesignStudioBoardSvgExportPostResponseDto
+     * @throws BadRequestException
+     * @throws ForbiddenException
+     * @throws ImagickException
+     * @throws InternalErrorException
+     * @throws InvalidArgumentException
+     * @throws NotFoundException
+     * @throws ReflectionException
+     */
+    #[Post('/canvases/{projectKey}/{canvasKey}/boards/{boardKey}/svgExports', requirements: ['boardKey' => '[^/]+'])]
+    #[Summary('DesignStudio Board SVG Export')]
+    public function exportBoardAsSvg(
+        DesignStudioBoardRequestDto $requestDto,
+        DesignStudioBoardSvgExportPostRequestDto $exportDto,
+        DesignStudioCanvasViewsService $designStudioCanvasViewsService,
+        DesignStudioBoardExportsService $designStudioBoardExportsService
+    ): DesignStudioBoardSvgExportPostResponseDto {
+        $this->requireDesignStudioViewer();
+        $canvasDefinition = $designStudioCanvasViewsService->getCanvasDefinition($requestDto->projectKey, $requestDto->canvasKey);
+        $designDirectoryBoard = $designStudioBoardExportsService->findBoard($canvasDefinition, $requestDto->boardKey);
+        $responseDto = new DesignStudioBoardSvgExportPostResponseDto();
+        $responseDto->designStudioBoardSvgExport = $designStudioBoardExportsService->buildBoardSvgExportView(
+            $canvasDefinition,
+            $designDirectoryBoard,
+            $exportDto->theme ?? $canvasDefinition->referenceTheme ?? null,
+            $exportDto->region,
+            $exportDto->device
+        );
         return $responseDto;
     }
 }

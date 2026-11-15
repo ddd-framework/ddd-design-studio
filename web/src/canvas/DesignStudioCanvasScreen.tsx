@@ -1366,6 +1366,9 @@ export const DesignStudioCanvasScreen = ({ projectKey, canvasKey }: DesignStudio
           void copyReferences([buildReferenceFor(focusedBoardId, { region, note, viewport: focusViewport })])
         }
         onCopyThreadReference={copyThreadReference}
+        themeReference={canvas?.themeReference ?? null}
+        themeLabel={shownThemeLabel}
+        isRendererEnabled={isRendererEnabled}
       />
     </div>
   );

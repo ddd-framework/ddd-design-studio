@@ -323,6 +323,45 @@ export interface DesignStudioBoardStatusResponse {
   designStudioBoardStatus: DesignStudioBoardStatus;
 }
 
+/** A part of a board in board pixels. */
+export interface DesignStudioBoardExportRegion {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** A board exported as SVG (renderer 1.2.0): the SVG with its sizes and its difference from the raster picture. */
+export interface DesignStudioBoardSvgExport {
+  boardKey?: string | null;
+  /** Suggested file name `<board>[-<theme>][-<device>][-<region>].svg` */
+  fileName?: string | null;
+  /** Theme the board was exported in, null = as authored */
+  themeReference?: string | null;
+  /** Device frame of a responsive board, null for a fixed board */
+  deviceKey?: string | null;
+  /** The exported part, null = the whole board */
+  region?: DesignStudioBoardExportRegion | null;
+  /** The SVG document (text as outlines, pictures embedded: it shows in an `<img>`) */
+  svg?: string | null;
+  width?: number;
+  height?: number;
+  svgByteSize?: number;
+  /** Size of the SVG compressed with gzip, as a web server sends it */
+  svgGzipByteSize?: number;
+  rasterPngByteSize?: number;
+  /** Size of the raster picture as WebP (quality 80), null without WebP on the server */
+  rasterWebpByteSize?: number | null;
+  /** Share of the pixels whose colour differs between the raster picture and the SVG (0–1) */
+  differingPixelRatio?: number;
+  /** `data:image/png` URL: raster | SVG | differing pixels in red */
+  comparisonImageDataUrl?: string | null;
+}
+
+export interface DesignStudioBoardSvgExportResponse {
+  designStudioBoardSvgExport: DesignStudioBoardSvgExport;
+}
+
 export interface DesignStudioCommentResponse {
   designStudioComment: DesignStudioComment;
 }
@@ -382,6 +421,17 @@ export interface DesignStudioBoardStatusPatchArg extends DesignStudioBoardArg {
   body: {
     /** One of the configured status keys */
     status: string;
+  };
+}
+
+export interface DesignStudioBoardSvgExportArg extends DesignStudioBoardArg {
+  body: {
+    /** Theme reference `<themeId>[:<mode>]`; omitted = the reference theme of the canvas */
+    theme?: string | null;
+    /** A part of the board in board pixels; omitted = the whole board */
+    region?: DesignStudioBoardExportRegion | null;
+    /** Device frame of a responsive board; omitted = its first frame */
+    device?: string | null;
   };
 }
 

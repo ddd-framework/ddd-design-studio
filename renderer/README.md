@@ -16,7 +16,7 @@ live boards when zoomed in.
 |---|---|
 | Port | `8080` |
 | `GET /healthz` | `200 {"status":"ok"}` once Chromium is running, `503` before; no auth (readiness + liveness) |
-| `POST /designBoardRenderer/<job>` | job `thumbnails`; also accepted under `/api/batch/designBoardRenderer/<job>` (for a reverse-proxy route of the app) |
+| `POST /designBoardRenderer/<job>` | jobs `thumbnails` and `vector` (renderer 1.2.0); also accepted under `/api/batch/designBoardRenderer/<job>` (for a reverse-proxy route of the app) |
 | Auth | header `X-Render-Token`; compared in constant time against `RENDER_TOKENS_PROD` / `RENDER_TOKENS_DEV`; unknown or missing → `401`. With neither variable set auth is **off** (local runs only) |
 | Concurrency | per caller class: `RENDER_MAX_PAGES_PROD` (default 2) / `RENDER_MAX_PAGES_DEV` (default 1) renders at once; `RENDER_QUEUE_MAX` (default 20) waiting per class, beyond → `429` + `Retry-After: 30` |
 | Limits | body ≤ 32 MB (`413`), 120 s per request incl. queueing (`504`), ≤ 50 themes per request, board ≤ 4000 × 20000 px |
@@ -66,6 +66,32 @@ Response (Argus batch envelope):
 Errors: `{ "status": <code>, "error": "<message>" }` with the same HTTP status (400 invalid body, 401, 404 unknown job,
 413, 429, 500, 504). The studio treats 401 / 429 / 502 / 504 and transport errors as "try again later" (thumbnails
 stay as they are). The reduced thumbnail is derived by the studio from `full`.
+
+### `POST /designBoardRenderer/vector`
+
+One board in one theme as a vector graphic (renderer 1.2.0). Chromium prints the board as a one-page PDF exactly as large
+as the board (screen media, backgrounds on); `pdftocairo` (poppler-utils, installed in the image) converts it to SVG.
+
+Request (JSON body): `html`, `width`, `height`, `fullPage`, `scripts` as for `thumbnails`; `theme` (optional, one
+`{ "themeHash", "css" }`); `region` (optional, `{ "x", "y", "width", "height" }` in board pixels, clamped to the board —
+the part of the board the SVG shows).
+
+Response:
+
+```json
+{ "status": 200, "data": {
+  "themeHash": "…", "svg": "<SVG base64>", "png": "<PNG base64: the raster picture of the same region>",
+  "comparison": "<PNG base64: raster | SVG as an <img> shows it | differing pixels in red>",
+  "differingPixelRatio": 0.0533, "width": 390, "height": 844 } }
+```
+
+The SVG needs nothing outside itself, so it shows in an `<img>`: text is drawn as glyph outlines (no font needed, not
+selectable), pictures are embedded, the root carries `width` / `height` in CSS pixels and a `viewBox` in points (the
+region). What a PDF cannot hold is lost or simplified — `backdrop-filter` (glass), some blend modes and filters; edges
+can sit 1–2 px apart from the raster picture. `differingPixelRatio` is the share of pixels whose colour differs by more
+than 48 (sum over R, G, B) between the raster picture and the SVG; the comparison picture shows where. Photos, maps and
+gradients stay raster inside the SVG: such a board's SVG is larger than its PNG or WebP. The SVG carries no element ids
+of the board (the PDF path loses the document structure).
 
 ## Environment
 

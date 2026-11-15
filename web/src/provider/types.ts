@@ -336,6 +336,24 @@ export interface DesignStudioTexts {
   boardLinkCopied: (code: string) => string;
   /** Button of the selected board's panel: copies the link that opens the canvas on that board. */
   copyBoardLink: string;
+  /** Focus view: the button that opens the SVG export (renderer 1.2.0). */
+  exportSvg: string;
+  /** Title of the SVG export panel. */
+  exportSvgTitle: string;
+  /** What the export covers: the look (`themeLabel`), the marked region (`hasRegion`). */
+  exportSvgScope: (themeLabel: string, hasRegion: boolean) => string;
+  /** Button of the panel that starts the export. */
+  exportSvgStart: string;
+  /** Shown while the renderer exports the board. */
+  exportSvgRunning: string;
+  /** Sizes of the export (`svg`, `gzip` = the SVG compressed, `raster` = the same picture as WebP or PNG; formatted). */
+  exportSvgSizes: (svg: string, gzip: string, raster: string) => string;
+  /** Share of the pixels that differ from the raster picture (`percent` formatted, e.g. `5.3 %`). */
+  exportSvgDiffering: (percent: string) => string;
+  /** What SVG cannot hold; shown under the comparison picture. */
+  exportSvgLostEffects: string;
+  /** Button that saves the SVG file. */
+  exportSvgDownload: string;
 }
 
 // --- environment ----------------------------------------------------------------------------------------------------

@@ -536,6 +536,7 @@ Paths are relative to the route prefix of the application's controllers.
 | GET | `/canvases/{projectKey}/{canvasKey}/revision` | fingerprint of board files, positions, sections, comments and statuses, for polling |
 | POST | `/canvases/{projectKey}/{canvasKey}/thumbnailRenderRequests` | files or refreshes the render request for the missing thumbnails (body `theme`, `priorityBoardKeys`) and answers the canvas view; without a renderer nothing is filed |
 | PATCH | `/canvases/{projectKey}/{canvasKey}/boards/{boardKey}/status` | sets the board status (body `status`) and stores the board version it was set on |
+| POST | `/canvases/{projectKey}/{canvasKey}/boards/{boardKey}/svgExports` | exports the board of the checkout as SVG through the renderer (renderer 1.2.0; body `theme`, `region` `{x, y, width, height}`, `device`); answers the SVG, its size and gzip size, the raster picture's size (WebP and PNG), the share of differing pixels and a comparison picture; nothing is stored. The board is named by file name or code |
 
 ### `DesignStudioCommentsControllerTrait`
 
@@ -577,6 +578,7 @@ account must pass the access policy. Boards are the files of the checkout the co
 | `app:design-studio:status` | `project canvas board status` | `--as=<name>` (default `Agent`) | sets the review status of a board |
 | `app:design-studio:theme` | `[theme]` | `--search=<text>` | without argument: lists the themes; with a theme reference: prints its `<style>` element |
 | `app:design-studio:thumbnails` | `project canvas` | `--theme=<reference>`, `--render` | reports how many pictures (fixed boards and device frames of responsive boards) have a thumbnail in the look and the newest render request; `--render` files a request for the missing ones |
+| `app:design-studio:export` | `project canvas board` | `--format=svg`, `--theme=<reference>`, `--out=<file>`, `--region=x,y,width,height`, `--device=<key>`, `--raster-out=<file.webp\|.png>`, `--comparison-out=<file.png>` | exports a board (file name or code) as SVG through the renderer (renderer 1.2.0) and prints the SVG's size (and gzip size) next to the raster picture's as WebP and PNG and the share of pixels that differ from the raster picture. See "Exporting a board as SVG" |
 | `app:design-studio:prune` | — | `--dryRun` | deletes expired threads (or reports them) and lists the ones expiring soon |
 
 Examples:
@@ -587,7 +589,28 @@ php bin/console app:design-studio:comments app onboarding --open
 php bin/console app:design-studio:comments app onboarding --new="Spacing above the button" --board=welcome.html --x=120 --y=640
 php bin/console app:design-studio:comments app onboarding --resolve=42 --text="done" --as="Design agent"
 php bin/console app:design-studio:status app onboarding welcome.html IN_REVIEW
+php bin/console app:design-studio:export app onboarding "APP ONB-W2" --theme=brand:1:dark --out=welcome.svg --comparison-out=welcome-comparison.png
 ```
+
+### Exporting a board as SVG
+
+`app:design-studio:export` (and the "SVG" button of the focus view) sends the board of the checkout — asset files
+inlined, in the theme, optionally a region and the device frame of a responsive board — to the renderer's `vector`
+job (renderer 1.2.0; `renderer/README.md`). Chromium prints the board as a PDF of exactly its size, `pdftocairo`
+converts it to SVG.
+
+- The file needs nothing outside itself and shows in an `<img src="….svg">`: text is drawn as glyph outlines (no font
+  needed, not selectable), pictures are embedded, `width` / `height` are the board's (or the region's) pixels.
+- What a PDF cannot hold is lost or simplified: `backdrop-filter` (glass), some blend modes and filters; edges can sit
+  1–2 px apart. The command prints the share of pixels whose colour differs from the raster picture of the same
+  version; `--comparison-out` writes raster | SVG | differing pixels in red.
+- Photos, maps and gradients stay raster inside the SVG: such a board's SVG is larger than its WebP. The command prints
+  both sizes (and the SVG's gzip size, as a web server sends it) so the reader picks SVG or WebP per board;
+  `--raster-out` writes the raster picture of the same version.
+- The SVG carries no element ids of the board (the PDF path loses the document structure): parts cannot be addressed
+  for animation by the board's ids.
+- The endpoint is the configured thumbnails endpoint with `/thumbnails` replaced by `/vector`; an older renderer answers
+  404 ("it needs renderer 1.2.0").
 
 ## Review state and retention
 

@@ -26,6 +26,16 @@ export const DEFAULT_DESIGN_STUDIO_TEXTS: DesignStudioTexts = {
   boardCodeNotFound: code => `No board has the code ${code}`,
   boardLinkCopied: code => `Link to ${code} copied`,
   copyBoardLink: 'Copy link',
+  exportSvg: 'SVG',
+  exportSvgTitle: 'Export as SVG',
+  exportSvgScope: (themeLabel, hasRegion) => `${hasRegion ? 'The marked region' : 'The whole board'} in ${themeLabel}.`,
+  exportSvgStart: 'Export',
+  exportSvgRunning: 'Exporting…',
+  exportSvgSizes: (svg, gzip, raster) => `SVG ${svg} (gzip ${gzip}) · raster ${raster}`,
+  exportSvgDiffering: percent => `Differs from the raster picture in ${percent} of the pixels.`,
+  exportSvgLostEffects:
+    'Raster | SVG | differing pixels in red. Glass (backdrop-filter), blend modes and some filters are lost in SVG.',
+  exportSvgDownload: 'Download SVG',
 };
 
 /** The defaults with the application's replacements on top; an entry that is missing or `undefined` keeps its default. */

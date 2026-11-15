@@ -5,10 +5,11 @@
 //
 // GET  /healthz                         200 once Chromium is running, else 503 (no auth)
 // POST /designBoardRenderer/thumbnails  Argus batch envelope in and out (also under /api/batch/designBoardRenderer/…)
+// POST /designBoardRenderer/vector      one board in one theme as SVG (+ raster picture and comparison)
 const http = require('http');
 const crypto = require('crypto');
 const { chromium } = require('playwright');
-const { renderBoardThemes, launchBrowser } = require('./renderer');
+const { renderBoardThemes, renderBoardVector, launchBrowser } = require('./renderer');
 
 const portArgument = process.argv.find(argument => argument.startsWith('--port='));
 const PORT = portArgument ? Number(portArgument.slice('--port='.length)) : 8080;
@@ -120,9 +121,53 @@ const validateThumbnailsJob = body => {
   return { html: body.html, width: Number(body.width) || 390, height: Number(body.height) || 844, fullPage: body.fullPage === true, scripts: body.scripts === true, themes };
 };
 
+/** @returns {{x: number, y: number, width: number, height: number}|null} */
+const validateRegion = region => {
+  if (region === undefined || region === null) return null;
+  const fields = ['x', 'y', 'width', 'height'];
+  if (typeof region !== 'object' || !fields.every(field => Number.isFinite(region[field]))) {
+    throw Object.assign(new Error('region needs numeric x, y, width and height'), { statusCode: 400 });
+  }
+  if (region.x < 0 || region.y < 0 || region.width < 1 || region.height < 1) {
+    throw Object.assign(new Error('region: x and y at least 0, width and height at least 1'), { statusCode: 400 });
+  }
+  return { x: region.x, y: region.y, width: region.width, height: region.height };
+};
+
+/** @returns {{html: string, width: number, height: number, fullPage: boolean, scripts: boolean, theme: {themeHash: string, css: string}|null, region: object|null}} */
+const validateVectorJob = body => {
+  if (!body || typeof body.html !== 'string' || body.html === '') throw Object.assign(new Error('html is required'), { statusCode: 400 });
+  const theme = body.theme ?? null;
+  if (theme !== null && (typeof theme !== 'object' || typeof theme.themeHash !== 'string' || typeof theme.css !== 'string')) {
+    throw Object.assign(new Error('theme needs themeHash and css'), { statusCode: 400 });
+  }
+  return {
+    html: body.html,
+    width: Number(body.width) || 390,
+    height: Number(body.height) || 844,
+    fullPage: body.fullPage === true,
+    scripts: body.scripts === true,
+    theme,
+    region: validateRegion(body.region),
+  };
+};
+
 let browser = null;
 
 const jobs = {
+  vector: async (body, signal) => {
+    const job = validateVectorJob(body);
+    const vector = await renderBoardVector(browser, job, { signal });
+    return {
+      themeHash: job.theme?.themeHash ?? '',
+      svg: Buffer.from(vector.svg, 'utf8').toString('base64'),
+      png: vector.png.toString('base64'),
+      comparison: vector.comparison.toString('base64'),
+      differingPixelRatio: vector.differingPixelRatio,
+      width: vector.width,
+      height: vector.height,
+    };
+  },
   thumbnails: async (body, signal) => {
     const job = validateThumbnailsJob(body);
     const images = await renderBoardThemes(browser, job, { signal });
@@ -158,7 +203,7 @@ const handleRender = async (request, response, jobName) => {
     const queuedMs = Date.now() - startedAt;
     const data = await job(body, abortController.signal);
     sendJson(response, 200, { status: 200, data });
-    log('info', 'rendered', { job: jobName, callerClass, queuedMs, totalMs: Date.now() - startedAt, images: data.images?.length });
+    log('info', 'rendered', { job: jobName, callerClass, queuedMs, totalMs: Date.now() - startedAt, images: data.images?.length ?? 1 });
   } catch (error) {
     const statusCode = abortController.signal.aborted ? 504 : (error.statusCode ?? (error instanceof SyntaxError ? 400 : 500));
     log(statusCode >= 500 ? 'error' : 'warn', 'render failed', { job: jobName, callerClass, statusCode, error: String(error.message ?? error) });

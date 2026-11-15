@@ -11,6 +11,8 @@ import type { reactHooksModuleName, TypedUseMutation, TypedUseQuery } from '@red
 import type {
   DesignStudioBoardStatusPatchArg,
   DesignStudioBoardStatusResponse,
+  DesignStudioBoardSvgExportArg,
+  DesignStudioBoardSvgExportResponse,
   DesignStudioCanvasArg,
   DesignStudioCanvasCommentsArg,
   DesignStudioCanvasResponse,
@@ -74,6 +76,11 @@ export interface DesignStudioApi {
     DesignStudioThumbnailRenderRequestArg
   >;
   useSetBoardStatusMutation: DesignStudioMutationHook<DesignStudioBoardStatusResponse, DesignStudioBoardStatusPatchArg>;
+  /**
+   * Exports a board as SVG through the renderer (renderer 1.2.0). Optional for an `api` an application builds itself:
+   * without it the focus view offers no export.
+   */
+  useExportBoardAsSvgMutation?: DesignStudioMutationHook<DesignStudioBoardSvgExportResponse, DesignStudioBoardSvgExportArg>;
   useCreateCommentMutation: DesignStudioMutationHook<DesignStudioCommentResponse, DesignStudioCommentCreateArg>;
   useReplyToCommentMutation: DesignStudioMutationHook<DesignStudioCommentResponse, DesignStudioCommentReplyArg>;
   usePatchCommentMutation: DesignStudioMutationHook<DesignStudioCommentResponse, DesignStudioCommentPatchArg>;
@@ -87,7 +94,7 @@ const PROVIDED = [{ type: DESIGN_STUDIO_TAG, id: 'LIST' }] as const;
 const INVALIDATED = [{ type: DESIGN_STUDIO_TAG, id: 'LIST' }, { type: DESIGN_STUDIO_TAG }] as const;
 
 /**
- * Injects the studio's 15 operations into the application's RTK Query api and returns their hooks. Call it once (module
+ * Injects the studio's 16 operations into the application's RTK Query api and returns their hooks. Call it once (module
  * scope) and hand the result to `DesignStudioProvider` as `environment.api`.
  *
  * Cache: one tag (`DesignStudio`). Every query provides it and every mutation invalidates it, so a write refetches
@@ -169,6 +176,15 @@ export const createDesignStudioApi = <ReducerPath extends string, TagTypes exten
         }),
         invalidatesTags: INVALIDATED,
       }),
+      // an export is an action, not a change: it invalidates nothing (the canvas is not fetched again)
+      designStudioExportBoardAsSvg: build.mutation<DesignStudioBoardSvgExportResponse, DesignStudioBoardSvgExportArg>({
+        query: arg => ({
+          url: `${canvasUrl(arg)}/boards/${arg.boardKey}/svgExports`,
+          method: 'POST',
+          body: arg.body,
+          params: { noCache: arg.noCache, outputFormat: arg.outputFormat },
+        }),
+      }),
       designStudioCreateComment: build.mutation<DesignStudioCommentResponse, DesignStudioCommentCreateArg>({
         query: arg => ({
           url: `${canvasUrl(arg)}/boards/${arg.boardKey}/comments`,
@@ -242,6 +258,7 @@ export const createDesignStudioApi = <ReducerPath extends string, TagTypes exten
     useExpiringCommentsQuery: api.useDesignStudioExpiringCommentsQuery,
     useRequestThumbnailRenderingMutation: api.useDesignStudioRequestThumbnailRenderingMutation,
     useSetBoardStatusMutation: api.useDesignStudioSetBoardStatusMutation,
+    useExportBoardAsSvgMutation: api.useDesignStudioExportBoardAsSvgMutation,
     useCreateCommentMutation: api.useDesignStudioCreateCommentMutation,
     useReplyToCommentMutation: api.useDesignStudioReplyToCommentMutation,
     usePatchCommentMutation: api.useDesignStudioPatchCommentMutation,

@@ -9,6 +9,11 @@ ENV NODE_ENV=production \
     XDG_CONFIG_HOME=/tmp/.chromium \
     XDG_CACHE_HOME=/tmp/.chromium
 
+# pdftocairo (poppler) converts the PDF Chromium prints into the SVG of the vector job
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends poppler-utils \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 COPY package.json ./
 RUN npm install --omit=dev --no-audit --no-fund && npm cache clean --force

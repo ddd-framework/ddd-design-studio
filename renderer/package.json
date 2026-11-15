@@ -1,8 +1,8 @@
 {
   "name": "design-board-renderer",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
-  "description": "Example thumbnail renderer of ddd-design-studio: board HTML + themes in, PNGs out (Playwright / Chromium, no network).",
+  "description": "Example thumbnail renderer of ddd-design-studio: board HTML + themes in, PNGs out; a board as SVG (Playwright / Chromium + pdftocairo, no network).",
   "main": "server.js",
   "license": "MIT",
   "scripts": {

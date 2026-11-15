@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.7.0
+
+- **A board as SVG:** `app:design-studio:export <project> <canvas> <board> --format=svg [--theme] [--out] [--region]
+  [--device] [--raster-out] [--comparison-out]` and the "SVG" button of the focus view (in the canvas' look, the
+  marked region when one is marked, the device frame of a responsive board). The renderer's new `vector` job
+  (renderer 1.2.0: Chromium prints a PDF of exactly the board's size, `pdftocairo` from poppler-utils converts it)
+  answers an SVG that needs nothing outside itself (text as outlines, pictures embedded; it shows in an `<img>`), the
+  raster picture of the same version and a comparison picture. The export names the SVG's size and gzip size next to
+  the raster picture's (WebP, PNG) and the share of pixels that differ from it — glass (backdrop-filter) and some blend
+  modes do not survive the PDF path. Route `POST …/boards/{boardKey}/svgExports`, service
+  `DesignStudioBoardExportsService`, npm hook `useExportBoardAsSvgMutation` (optional in a self-built `api`), nine new
+  texts. Nothing is stored; thumbnails are unchanged.
+- **Renderer 1.2.0** (`renderer/`): the image installs `poppler-utils`; job `vector` documented in `renderer/README.md`.
+
 ## 0.6.1
 
 - **A stuck render request blocks for 5 minutes, not 20:** every run (a redelivered one too), every stored thumbnail,

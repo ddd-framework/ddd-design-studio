@@ -92,6 +92,7 @@ returns the hooks. One cache tag: every query provides it, every mutation invali
 | `useExpiringCommentsQuery` | `GET /comments/expiring` |
 | `useRequestThumbnailRenderingMutation` | `POST /canvases/{projectKey}/{canvasKey}/thumbnailRenderRequests` |
 | `useSetBoardStatusMutation` | `PATCH /canvases/{projectKey}/{canvasKey}/boards/{boardKey}/status` |
+| `useExportBoardAsSvgMutation` | `POST /canvases/{projectKey}/{canvasKey}/boards/{boardKey}/svgExports` (optional in an `api` an application builds itself; without it the focus view has no "SVG" button) |
 | `useCreateCommentMutation` | `POST /canvases/{projectKey}/{canvasKey}/boards/{boardKey}/comments` |
 | `useReplyToCommentMutation` | `POST /comments/{designStudioCommentId}/replies` |
 | `usePatchCommentMutation` | `PATCH /comments/{designStudioCommentId}` |
@@ -160,6 +161,15 @@ Inside the package, components read it with `useDesignStudio()` or the narrower 
 | `boardCodeNotFound(code)` | `No board has the code <code>` |
 | `boardLinkCopied(code)` | `Link to <code> copied` |
 | `copyBoardLink` | `Copy link` |
+| `exportSvg` | `SVG` (focus view button; shown when the renderer is configured) |
+| `exportSvgTitle` | `Export as SVG` |
+| `exportSvgScope(themeLabel, hasRegion)` | `The whole board in <theme>.` / `The marked region in <theme>.` |
+| `exportSvgStart` | `Export` |
+| `exportSvgRunning` | `Exporting…` |
+| `exportSvgSizes(svg, gzip, raster)` | `SVG 153 KB (gzip 49 KB) · raster WebP 30 KB` |
+| `exportSvgDiffering(percent)` | `Differs from the raster picture in 5.3 % of the pixels.` |
+| `exportSvgLostEffects` | `Raster \| SVG \| differing pixels in red. Glass (backdrop-filter), blend modes and some filters are lost in SVG.` |
+| `exportSvgDownload` | `Download SVG` |
 
 ```ts
 const ENVIRONMENT: DesignStudioEnvironment = {

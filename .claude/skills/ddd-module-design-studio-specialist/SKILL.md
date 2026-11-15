@@ -1,9 +1,9 @@
 ---
 name: ddd-module-design-studio-specialist
-description: "Installs, wires and operates ddd-design-studio, a review studio for a checkout's HTML design boards. Covers canvas.json, board files and versions, assets-folder images, board scripts, responsive boards in device frames (devices config, fullPage renderer), the site view (routes), the DesignStudio config files, thin controllers on the three traits, the token-guarded content route, object storage, the optional thumbnail renderer and worker, binding the access policy and theme provider, board codes (APP ONB-W2) and code links, and app:design-studio:show, comments, comments-poll, decisions, status, theme, thumbnails, prune. Use when installing the studio, adding a canvas, putting photos into boards, running board JavaScript, marking a board responsive, opening a canvas as a website, linking to a board, answering design comments as an agent, setting a board status, requesting thumbnails, or debugging an empty canvas, a missing board or image, No handler for message, missing thumbnails or a 404 on board content."
+description: "Installs, wires and operates ddd-design-studio, a review studio for a checkout's HTML design boards. Covers canvas.json, boards and versions, assets-folder images, board scripts, responsive boards in device frames, the site view, the DesignStudio config files, thin controllers on the three traits, the token-guarded content route, object storage, the optional renderer (thumbnails, SVG export) and worker, access policy and theme provider, board codes (APP ONB-W2), and app:design-studio:show, comments, comments-poll, decisions, status, theme, thumbnails, export, prune. Use when installing the studio, adding a canvas, putting photos into boards, running board JavaScript, marking a board responsive, opening a canvas as a website, linking to a board, answering design comments as an agent, setting a board status, requesting thumbnails, exporting a board as SVG, or debugging an empty canvas, a missing board or image, No handler for message, missing thumbnails or a 404 on board content."
 metadata:
   author: mgamadeus
-  version: "0.6.1"
+  version: "0.7.0"
   module: mgamadeus/ddd-design-studio
 ---
 
@@ -340,6 +340,24 @@ every minute and closes the request when nothing renderable is missing (missing 
 waiting for the renderer). Every run, stored thumbnail and retry writes the request; opening a canvas replaces a request without a write for 5 minutes (a failing object store is retried with backoff, reason in `lastError`). A thumbnail key is derived from content hash, theme hash and
 `rendererVersion`: changing `rendererVersion` makes every thumbnail render anew.
 
+## Export a board as SVG (renderer 1.2.0)
+
+```bash
+php bin/console app:design-studio:export app onboarding "APP ONB-W2" --theme=brand:1:dark --out=welcome.svg
+php bin/console app:design-studio:export app onboarding home.html --device=iphone-16 --region=0,560,393,200 \
+    --raster-out=home.webp --comparison-out=home-comparison.png
+```
+
+- Needs the renderer config (as thumbnails) and renderer 1.2.0 (job `vector`; an older one answers 404). The board is
+  the file of this checkout, asset files inlined; `--theme` defaults to the canvas' reference theme.
+- The SVG shows in an `<img>` without anything else: text as outlines, pictures embedded. Glass (`backdrop-filter`),
+  some blend modes and filters are lost, edges can sit 1–2 px apart: the command prints the share of differing pixels;
+  `--comparison-out` shows where.
+- It prints the SVG's size (and gzip size) next to the same picture as WebP and PNG: boards with photos or maps are
+  usually smaller as WebP. The SVG carries no element ids of the board.
+- In the studio: the "SVG" button of the focus view (shown when the renderer is configured) exports the board in the
+  canvas' look, the marked region when one is marked, and offers the download with the same numbers and comparison.
+
 ## Bind the access policy and themes
 
 Subclass, register the subclasses as public services **and** alias the module's service ids to them:
@@ -407,6 +425,7 @@ class AppDesignAccessPolicyService extends DesignAccessPolicyService
 | Render request stays `QUEUED` | No consumer on `render_design_studio_thumbnails`, transport or routing missing, or the message's account fails `canView()` in the worker. After 5 minutes without a write the next request replaces it |
 | Render request `WAITING_FOR_RENDERER` | See `lastError` (`app:design-studio:thumbnails …`): endpoint not reachable (404), token missing or wrong (401), renderer busy (429) |
 | Request `DONE` but thumbnails are missing | No object store configured (thumbnails cannot be stored), or single boards failed: see `lastError` |
+| `app:design-studio:export` fails with `unknown job "vector"` / status 404 | The renderer is older than 1.2.0, or the endpoint does not end in `/thumbnails` (the export replaces that segment by `/vector`) |
 | `app:design-studio:thumbnails` prints `No renderer is configured` | `DesignStudio.renderer.enabled` is `false` in the effective config (an application file replaces the module file as a whole) |
 | Console lists nothing / "may not" errors | `CLI_DEFAULT_ACCOUNT_ID_FOR_CLI_OPERATIONS` is unset or its account fails the access policy |
 | `Comment #<id> is not on this canvas` | Wrong project / canvas arguments for that comment id, or the comment was deleted |

@@ -19,6 +19,7 @@ import { boardSandbox, designContentUrl } from './BoardNode';
 import { shortContentHash } from './canvasLiveUpdate';
 import type { BoardRegion } from './designReference';
 import { BoardStatusChips } from './BoardStatusChips';
+import { BoardSvgExport } from './BoardSvgExport';
 import {
   type DeviceViewport,
   framesOf,
@@ -62,6 +63,12 @@ export interface BoardFocusViewProps {
   onCopyReference: (options: { region: BoardRegion | null; note: string }) => void;
   /** "Copy for agent" on a comment thread. */
   onCopyThreadReference: (thread: CommentThread) => void;
+  /** The look the canvas shows (`<themeId>[:<mode>]`), null = as authored; the SVG export uses it. */
+  themeReference?: string | null;
+  /** Label of that look. */
+  themeLabel?: string;
+  /** The renderer is configured: the focus view offers the SVG export (renderer 1.2.0). */
+  isRendererEnabled?: boolean;
 }
 
 /**
@@ -90,8 +97,11 @@ export const BoardFocusView = ({
   onStatusChanged,
   onCopyReference,
   onCopyThreadReference,
+  themeReference = null,
+  themeLabel = '',
+  isRendererEnabled = false,
 }: BoardFocusViewProps) => {
-  const { apiBaseUrl, components } = useDesignStudio();
+  const { api, apiBaseUrl, components } = useDesignStudio();
   const texts = useDesignStudioTexts();
   const { Button, Dialog, DialogContent, DialogDescription, DialogTitle, Textarea } = components;
   const [isPlacingPin, setIsPlacingPin] = useState(false);
@@ -279,6 +289,18 @@ export const BoardFocusView = ({
                 writesAllowed={writesAllowed}
                 onStatusChanged={onStatusChanged}
               />
+              {isRendererEnabled && api.useExportBoardAsSvgMutation && board.boardKey && (
+                <BoardSvgExport
+                  useExportBoardAsSvgMutation={api.useExportBoardAsSvgMutation}
+                  projectKey={projectKey}
+                  canvasKey={canvasKey}
+                  boardKey={board.boardKey}
+                  themeReference={themeReference}
+                  themeLabel={themeLabel || texts.thumbnailsFallbackThemeLabel}
+                  region={region}
+                  deviceKey={isResponsive ? viewport.deviceKey : null}
+                />
+              )}
               <div className="flex items-center gap-1">
                 <Button variant="outline" size="icon" aria-label="Previous board (←)" onClick={onPrevious}>
                   <ChevronLeft />
