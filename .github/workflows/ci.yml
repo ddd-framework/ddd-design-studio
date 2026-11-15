@@ -73,3 +73,6 @@ jobs:
         run: test/consumer/run.sh "$(ls "$RUNNER_TEMP"/mgamadeus-ddd-design-studio-*.tgz)" npm "$RUNNER_TEMP/consumer-npm"
       - name: Consumer check with pnpm
         run: test/consumer/run.sh "$(ls "$RUNNER_TEMP"/mgamadeus-ddd-design-studio-*.tgz)" pnpm "$RUNNER_TEMP/consumer-pnpm"
+      # the oldest @mgamadeus/ddd-web the peer range admits
+      - name: Consumer check with the oldest ddd-web
+        run: DDD_WEB_VERSION=0.3.0 test/consumer/run.sh "$(ls "$RUNNER_TEMP"/mgamadeus-ddd-design-studio-*.tgz)" npm "$RUNNER_TEMP/consumer-oldest-ddd-web"

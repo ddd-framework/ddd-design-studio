@@ -23,7 +23,8 @@ mkdir -p "$APP"
 cp "$HERE/smoke.mjs" "$HERE/consumer.ts" "$APP/"
 cd "$APP"
 echo '{"name":"consumer","private":true,"type":"module"}' > package.json
-DEPS=("$TARBALL" @mgamadeus/ddd-web @reduxjs/toolkit @xyflow/react lucide-react react react-dom react-redux
+# DDD_WEB_VERSION: the @mgamadeus/ddd-web version to check against (default: the latest; the peer range starts at 0.3.0)
+DEPS=("$TARBALL" "@mgamadeus/ddd-web@${DDD_WEB_VERSION:-latest}" @reduxjs/toolkit @xyflow/react lucide-react react react-dom react-redux
   @types/react @types/react-dom typescript@^6 @types/node)
 echo "── install with $PM"
 if [ "$PM" = npm ]; then npm install --no-audit --no-fund "${DEPS[@]}"; else pnpm add "${DEPS[@]}"; fi

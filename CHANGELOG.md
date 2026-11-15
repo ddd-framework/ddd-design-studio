@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.3
+
+- The peer range of `@mgamadeus/ddd-web` is `>=0.3.0 <1.0.0` (was `^0.3.0`, which a host on 0.4 or later did not
+  meet). The package uses `normalizeDddError` of `/api` only, present since 0.3.0; the consumer check runs against
+  0.3.0 and the latest version.
+
 ## 0.7.2
 
 - **Smaller SVG of boards with photos (renderer 1.2.2):** an `<img>` shown far smaller than its own size is scaled to
