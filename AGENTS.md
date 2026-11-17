@@ -45,7 +45,7 @@ src/
 |   |   +-- DB/              [DB* repos + DB*Model per entity; DesignStudioRightsTrait]
 |   |   +-- Argus/Thumbnails/ArgusDesignBoardRenderedThumbnails.php
 |   +-- Services/            [see below]
-|   +-- MessageHandlers/     [RenderDesignStudioThumbnailsMessage + RenderDesignStudioThumbnailsHandler]
+|   +-- MessageHandlers/     [RenderDesignStudioThumbnailMessage + Handler (one picture); RenderDesignStudioThumbnailsMessage + Handler (deprecated: converts 0.8 shard messages)]
 +-- Presentation/Api/Admin/DesignStudio/
 |   +-- Traits/              [DesignStudioCanvasesControllerTrait, DesignStudioCommentsControllerTrait,
 |   |                         DesignStudioContentControllerTrait, DesignStudioViewerTrait]
@@ -78,6 +78,7 @@ application.
 | `DesignStudioBoardStatus` | Entity | `DesignStudioBoardStatuses` | status of one board (unique on project, canvas, board) with the version it was set on |
 | `DesignStudioThumbnail` | Entity | `DesignStudioThumbnails` | PNG of a board version in a look (unique `thumbnailKey`); a cache, deletable at any time |
 | `DesignStudioThumbnailRenderRequest` | Entity | `DesignStudioThumbnailRenderRequests` | order to render the missing thumbnails of a canvas in a look; `STATUS_*`, `attempts`, `lastError`, `renderedThumbnailCount`, `failedBoards` (`getFailedBoards()`) |
+| `DesignStudioThumbnailRenderPicture` | Entity | `DesignStudioThumbnailRenderPictures` | one picture of a request (board or device frame): `renderTargetKey`, `position`, `status` QUEUED → DONE / FAILED / SKIPPED (exactly once), `attempts`, `lastError`; unique on request and render target |
 | `DesignStudioThumbnailRenderFailure(s)` | ValueObject | no (lines of `failedBoards`) | a picture a request could not produce: render target key, board version, error |
 | `DesignBoardRenderedThumbnails` | ValueObject | no (Argus, uncached) | one render call: HTML and theme in, PNG or failure out |
 
@@ -97,7 +98,8 @@ All in `DDD\Domain\DesignStudio\Services\` (public via `DesignStudioModule::getP
 | `DesignStudioCommentsService` (EntitiesService) | threads: `findForCanvas()`, `createThread()`, `reply()`, `changeComment()`, `resolveThread()`, `reopenThread()`, `keepThread()`, `deleteComment()`, `getCanvasFingerprint()`; retention: `findExpiringThreads()`, `pruneExpiredThreads()`, `pruneExpiredThreadsIfDue()` |
 | `DesignStudioBoardStatusesService` (EntitiesService) | `getStatuses()`, `findForCanvas()`, `findForBoard()`, `setStatus()` |
 | `DesignStudioThumbnailsService` (EntitiesService) | `isRendererEnabled()`, `getRendererVersion()`, `computeThumbnailKey()`, `findForBoards()`, `findBoardsWithoutThumbnail()`, `storeThumbnail()`, `getThumbnailContent()` |
-| `DesignStudioThumbnailRenderRequestsService` (EntitiesService) | `requestRendering()`, `findLatestRequest()`, `processRequest()` (the Messenger job), sharding (`getShardOfBoard()`, `getRenderConcurrency()`, `dispatchAllShards()`, `dispatchRun()`), backoff and stall detection |
+| `DesignStudioThumbnailRenderRequestsService` (EntitiesService) | `requestRendering()` (lists the pictures, one message each), `findLatestRequest()`, `processPicture()` (the Messenger job), `convertShardRunToPictureMessages()` (deprecated 0.8 messages), retry delays (`computeRetryDelaySeconds()`), closing (`closeRequest()`), stall detection |
+| `DesignStudioThumbnailRenderPicturesService` (EntitiesService) | `createPictures()`, `findPicture()`, `findQueuedPictures()`, `finishPicture()` (compare-and-set), `recordFailedTry()`, `findPictureCounts()` |
 | `DesignStudioFilesService` | object storage: snapshots (`storeSnapshot()`, `readSnapshot()`, `deleteSnapshot()`, `getSnapshotObjectKey()`) and thumbnails (`storeThumbnail()`, `storeSmallThumbnail()`, `readThumbnail()`); answers `null` without a configured store |
 | `DesignBoardContentService` | delivery: `createContentToken()`, `authenticateContentToken()`, `getBoardHtml()`, `getBoardHtmlForSandbox()`, static `removeScripts()` / `applyTheme()` |
 | `DesignAccessPolicyService` | extension point: `canView()`, `canComment()`, `canSetStatus()`, `canDecide()`, `getAccountDisplayName()` |
@@ -116,12 +118,13 @@ All in `DDD\Domain\DesignStudio\Services\` (public via `DesignStudioModule::getP
   `deleteWithSnapshot()` only when no other row references the key.
 - **Thumbnail key:** `sha256(contentHash:themeHash:rendererVersion)`. Nothing is invalidated; a changed input has no
   thumbnail yet.
-- **Render run:** `processRequest()` is one shard of one request. It re-reads the directory, renders with one call in
-  flight (`ArgusDesignBoardRenderedThumbnails::startRender()` / `finishRender()`), hands over to a new message after
-  `RUN_BUDGET_SECONDS`, and never throws for a renderer failure (retryable: wait with backoff). Any other failure of
-  one picture (refused, render or store throws) is caught per picture: the run goes on, retries it once at its end and
-  appends it to `failedBoards` (atomic `CONCAT`); `renderedThumbnailCount` is raised atomically per stored picture.
-  `closeRequest()` decides `FAILED` (an error and nothing rendered) or `DONE`.
+- **Render request:** `requestRendering()` writes one `DesignStudioThumbnailRenderPicture` per missing picture (boards
+  on screen first) and dispatches one `RenderDesignStudioThumbnailMessage` each; parallelism = consumer processes.
+  `processPicture()` re-reads the directory, renders the picture's current version, and never throws for the picture:
+  any throwable or renderer failure is a failed try, dispatched again with a `DelayStamp` (30 s doubling, at most 4
+  minutes) up to `MAX_PICTURE_ATTEMPTS`; a renderer 400 or the last try fails the picture (`finishPicture()`:
+  compare-and-set on the row, then `failedBoards` appended / `renderedThumbnailCount` raised atomically). When no
+  picture is queued any more, `closeRequest()` decides `FAILED` (an error and nothing rendered) or `DONE`.
 - **Rights:** `DesignStudioRightsTrait::applyReadRightsQuery()` on all four DB repos denies every row to accounts that
   fail `DesignAccessPolicyService::canView()`. Finer rules are checked in the services (`requireMayComment()`,
   `setStatus()`). Code that must run without an account (prune, token authentication) deactivates rights restrictions
@@ -141,9 +144,10 @@ All in `DDD\Domain\DesignStudio\Services\` (public via `DesignStudioModule::getP
 - **Console commands:** extend `DesignStudioCommand` (`addCanvasArguments()`, `authenticate()`, `getCanvasDefinition()`,
   `formatComment()`); name them `app:design-studio:<verb>`. They are auto-registered in a consuming application; an
   application class with the same command name wins.
-- **Messenger handler:** `RenderDesignStudioThumbnailsHandler` is bound to the transport
-  `render_design_studio_thumbnails`. It is not auto-registered in a consuming application (the README documents the
-  `services.yaml` tag); renaming the transport is a breaking change for every application.
+- **Messenger handlers:** `RenderDesignStudioThumbnailHandler` (and, deprecated until the next minor release,
+  `RenderDesignStudioThumbnailsHandler`) are bound to the transport
+  `render_design_studio_thumbnails`. They are not auto-registered in a consuming application (the README documents the
+  `services.yaml` tags); renaming the transport is a breaking change for every application.
 
 ## Conventions
 

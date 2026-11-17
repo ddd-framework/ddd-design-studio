@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.9.0
+
+**Thumbnails: one message per picture.** A render request no longer runs in shards that work through a list of boards;
+every picture (a fixed board, or one device frame of a responsive board) is a message of its own.
+
+- **Message and transport.** New `RenderDesignStudioThumbnailMessage` (request id, render target key, try number) with
+  `RenderDesignStudioThumbnailHandler`, on the same transport `render_design_studio_thumbnails`. An application adds
+  one routing line and one handler tag (README, installation step 8). The shard message
+  `RenderDesignStudioThumbnailsMessage` and its handler stay for this release (deprecated, removed in the next minor
+  release): a shard message still queued at deploy time is converted into one picture message per missing picture of
+  its request, once per request; keep its routing line and handler tag until the queue holds none.
+- **Consumers.** Pictures rendered at once = consumer processes of `render_design_studio_thumbnails`; each renders one
+  picture at a time. Recommended: as many as the renderer renders at once (2 for the example renderer on one small
+  machine). `DesignStudio.renderer.concurrency` and `concurrencyEnv` are gone (ignored when an application file still
+  names them); there is no second setting for parallelism.
+- **Per picture: bounded tries with delay.** A failed try — renderer busy or unreachable (401, 404, 429, 502–504,
+  transport, no answer), a render or store that throws or times out, an answer that is no image — is dispatched again
+  with a `DelayStamp` after 30 / 60 / 120 / 240 s (+ up to 10 s jitter), at most 5 tries; then, or at once for a
+  renderer refusal (HTTP 400), the picture is `FAILED` with its reason. One picture holds a consumer for at most the
+  new renderer timeout `DesignStudio.renderer.timeoutSeconds` (default `60`; was a fixed 130 s) plus the thumbnail
+  store's timeouts (`DesignStudio.storage.thumbnailStore` with `timeoutSeconds: 5`, `maxRetries: 3`, `mgamadeus/ddd`
+  3.35.2; 3.35.3 adds an optional `httpVersion` per store, e.g. `'1.1'` where uploads stall).
+- **Request.** It counts its pictures and closes when done, failed and skipped add up to the total: `DONE` when it
+  stored a picture or nothing went wrong, `FAILED` when it ends with an error and stored none. Each picture reaches its
+  final status exactly once (compare-and-set), so a redelivered message counts nothing twice. A board changed since
+  the request was filed is rendered in its current version; a board that is gone is skipped. The canvas keeps 0.8's
+  states (progress while rendering, "n of m, k failed" with the reason per picture, never empty); its retry and
+  `app:design-studio:thumbnails --render` file a new request that dispatches only the pictures still missing, the
+  failed ones. The console lists done / failed / skipped / queued pictures.
+- **Order.** The pictures are dispatched in the order of the request: the boards on screen first (the priority list),
+  then the rest.
+- Unchanged from 0.8.0: any throwable of one picture is that picture's failure; the thumbnail row is written once the
+  full picture is stored, smaller copies are made separately or on first read and a stored full picture is never
+  uploaded again; an unstable theme ends the request `FAILED` with the reason and is named by the canvas and the
+  console.
+- **Schema:** new table `DesignStudioThumbnailRenderPictures` (`renderRequestId` INT UNSIGNED NOT NULL with a foreign
+  key to `DesignStudioThumbnailRenderRequests` ON DELETE CASCADE, `renderTargetKey` VARCHAR(255) NOT NULL, `boardKey`
+  VARCHAR(255) NOT NULL, `frameDeviceKey` VARCHAR(64), `position` INT, `status` VARCHAR(16) NOT NULL, `attempts` INT,
+  `lastError` VARCHAR(1000), `id`, `created`, `updated`; unique (`renderRequestId`, `renderTargetKey`), index
+  (`renderRequestId`, `status`)); new nullable column `pictureCount` INT on `DesignStudioThumbnailRenderRequests`. The
+  request's `attempts` column is no longer written. Take the exact DDL from the schema diff.
+
 ## 0.8.0
 
 - **One failing picture no longer blocks the others.** Before, a thumbnail whose store failed (or hung, then threw)

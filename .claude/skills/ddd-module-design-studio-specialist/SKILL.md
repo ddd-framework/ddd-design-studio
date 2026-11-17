@@ -3,7 +3,7 @@ name: ddd-module-design-studio-specialist
 description: "Installs, wires and operates ddd-design-studio, a review studio for a checkout's HTML design boards. Covers canvas.json, boards and versions, assets-folder images, board scripts, responsive boards in device frames, the site view, the DesignStudio config files, thin controllers on the three traits, the token-guarded content route, object storage, the optional renderer (thumbnails, SVG export) and worker, access policy and theme provider, board codes (APP ONB-W2), and app:design-studio:show, comments, comments-poll, decisions, status, theme, thumbnails, export, prune. Use when installing the studio, adding a canvas, putting photos into boards, running board JavaScript, marking a board responsive, opening a canvas as a website, linking to a board, answering design comments as an agent, setting a board status, requesting thumbnails, exporting a board as SVG, or debugging an empty canvas, a missing board or image, No handler for message, missing thumbnails or a 404 on board content."
 metadata:
   author: mgamadeus
-  version: "0.8.0"
+  version: "0.9.0"
   module: mgamadeus/ddd-design-studio
 ---
 
@@ -301,10 +301,15 @@ Off by default (`DesignStudio.renderer.enabled` = `false`): the canvas view then
 1. Application `config/app/DesignStudio/renderer.php`: copy the module file, set `enabled` to `true`, keep every key.
    `endpoint` is `POST:<path>` (relative to the Argus base URL) or `POST:<absolute URL>`; the environment variable named
    in `endpointEnv` replaces it; the one named in `tokenEnv` is sent as `X-Render-Token`.
-2. `services.yaml`:
+2. `services.yaml` (both handlers; the second only until the next minor release):
 
    ```yaml
-   DDD\Domain\DesignStudio\MessageHandlers\RenderDesignStudioThumbnailsHandler:
+   DDD\Domain\DesignStudio\MessageHandlers\RenderDesignStudioThumbnailHandler:     # one picture
+       tags:
+           - { name: messenger.message_handler, from_transport: render_design_studio_thumbnails }
+       bind:
+           Psr\Log\LoggerInterface $messengerLogger: '@monolog.logger.messenger'
+   DDD\Domain\DesignStudio\MessageHandlers\RenderDesignStudioThumbnailsHandler:    # deprecated: converts 0.8 shard messages
        tags:
            - { name: messenger.message_handler, from_transport: render_design_studio_thumbnails }
        bind:
@@ -319,33 +324,38 @@ Off by default (`DesignStudio.renderer.enabled` = `false`): the canvas view then
            transports:
                render_design_studio_thumbnails: '%env(MESSENGER_TRANSPORT_DSN_RABBITMQ)%/render_design_studio_thumbnails'
            routing:
-               'DDD\Domain\DesignStudio\MessageHandlers\RenderDesignStudioThumbnailsMessage': render_design_studio_thumbnails
+               'DDD\Domain\DesignStudio\MessageHandlers\RenderDesignStudioThumbnailMessage': render_design_studio_thumbnails
+               'DDD\Domain\DesignStudio\MessageHandlers\RenderDesignStudioThumbnailsMessage': render_design_studio_thumbnails   # deprecated
    ```
 
 4. Rebuild the container, then run consumers: `php bin/console messenger:consume render_design_studio_thumbnails`.
-   A request runs in `concurrency` shards (default 2, at most 8), one message each; run at least that many consumer
-   processes. Worker setup and the stale-container trap: `ddd-message-handler-specialist`.
+   One message per picture: **pictures rendered at once = consumer processes** (no setting). Run as many as the
+   renderer renders at once (2 for the example renderer on one small machine). One picture holds a consumer for at
+   most `DesignStudio.renderer.timeoutSeconds` (60) plus the thumbnail store's timeouts. Worker setup and the
+   stale-container trap: `ddd-message-handler-specialist`.
 5. Check and request:
 
    ```bash
-   php bin/console app:design-studio:thumbnails app onboarding                    # "N of M pictures have a thumbnail" (boards + device frames) + newest request
-   php bin/console app:design-studio:thumbnails app onboarding --render           # files a request for the missing ones
+   php bin/console app:design-studio:thumbnails app onboarding                    # "N of M pictures have a thumbnail" + newest request: done / failed / skipped / queued, failed pictures with reasons
+   php bin/console app:design-studio:thumbnails app onboarding --render           # files a request: one message per missing picture (after a failure: only those)
    php bin/console app:design-studio:thumbnails app onboarding --theme=brand:1:dark --render
    ```
 
-Request statuses: `QUEUED`, `RUNNING`, `WAITING_FOR_RENDERER` (renderer answered 401, 404, 429, 502 to 504 or was
-unreachable; retried with backoff), `DONE` (rendered at least one picture), `FAILED` (ended with an error and rendered
-none, or gave up waiting). One picture that fails (renderer 400, a render or store that throws or times out, no image)
-never blocks the others: the run skips it, renders the rest, retries it once at its end and records it in
-`failedBoards` with its error; the request does not try it again (a new request or board version does). The canvas
-shows "n of m, k failed" with the reason per picture. A theme provider that answers another style on each call is
-named by the canvas, the console (warning) and the request (`FAILED`, "the theme returns different styles on each
-call"); fix the provider. Thumbnail store with a short timeout: `DesignStudio.storage.thumbnailStore` naming a store on
-the same bucket with `timeoutSeconds: 5`, `maxRetries: 3` (`mgamadeus/ddd` 3.35.2). A request stays open only while a shard has a queued or running
-message: a board that changed during the run is read again 10 seconds later, a shard that is through watches the others
-every minute and closes the request when nothing renderable is missing (missing boards unchanged for 3 minutes, no shard
-waiting for the renderer). Every run, stored thumbnail and retry writes the request; opening a canvas replaces a request without a write for 5 minutes (a failing object store is retried with backoff, reason in `lastError`). A thumbnail key is derived from content hash, theme hash and
-`rendererVersion`: changing `rendererVersion` makes every thumbnail render anew.
+Request statuses: `QUEUED`, `RUNNING`, `WAITING_FOR_RENDERER` (the renderer was busy or unreachable for a picture; its
+retry is scheduled, the others go on), `DONE` (stored a picture, or nothing went wrong), `FAILED` (ended with an error
+and stored none, or replaced after 5 minutes without a sign of life). The pictures are rows of
+`DesignStudioThumbnailRenderPictures` (`QUEUED` → `DONE` / `FAILED` / `SKIPPED`, exactly once); the request closes when
+they add up. A failed try (renderer busy / unreachable / no answer, a render or store that throws or times out, no
+image) is dispatched again after 30 / 60 / 120 / 240 s, at most 5 tries; then, or at once for a renderer 400, the
+picture is `FAILED` with its reason (row, request `failedBoards`, `lastError` `k picture(s) failed: …`). The canvas
+shows progress, then "n of m, k failed" with the reason per picture; its retry and `--render` dispatch only the
+pictures still missing. A board changed since filing is rendered in its current version; a board that is gone is
+skipped. A theme provider that answers another style on each call is named by the canvas, the console (warning) and
+the request (`FAILED`, "the theme returns different styles on each call"); fix the provider. Thumbnail store with a
+short timeout: `DesignStudio.storage.thumbnailStore` naming a store on the same bucket with `timeoutSeconds: 5`,
+`maxRetries: 3` (`mgamadeus/ddd` 3.35.2; 3.35.3 adds an optional `httpVersion` per store for uploads that stall). A
+thumbnail key is derived from content hash, theme hash and `rendererVersion`: changing `rendererVersion` makes every
+thumbnail render anew.
 
 ## Export a board as SVG (renderer 1.2.0)
 
@@ -428,7 +438,8 @@ class AppDesignAccessPolicyService extends DesignAccessPolicyService
 | Board iframe answers 401 / 403 | The firewall still protects the content path; add the `PUBLIC_ACCESS` rule above the admin rule |
 | An image of a board is missing | The reference is not `assets/…` / `./assets/…` in `src`, `href`, `poster`, `srcset` or `url()`; the type is not an image type; the path has a dot segment or other characters; the file is larger than `assetMaximumBytes`, resolves outside `assets/`, or is not in the deployed image |
 | Old version of a commented board cannot be shown | No object store was configured when the thread started (no snapshot), or the snapshot object is gone |
-| `No handler for message "…RenderDesignStudioThumbnailsMessage"` | The handler tag is missing in `services.yaml`, or the worker runs a container built before it was added. Add the tag, rebuild the container, restart the workers |
+| `No handler for message "…RenderDesignStudioThumbnailMessage"` (or `…ThumbnailsMessage`) | The handler tag is missing in `services.yaml`, or the worker runs a container built before it was added. Add both handler tags, rebuild the container, restart the workers |
+| Thumbnails arrive one at a time / slowly | One consumer process renders one picture at a time: run as many consumers on `render_design_studio_thumbnails` as the renderer renders at once (`concurrency` is gone since 0.9) |
 | Render request stays `QUEUED` | No consumer on `render_design_studio_thumbnails`, transport or routing missing, or the message's account fails `canView()` in the worker. After 5 minutes without a write the next request replaces it |
 | Render request `WAITING_FOR_RENDERER` | See `lastError` (`app:design-studio:thumbnails …`): endpoint not reachable (404), token missing or wrong (401), renderer busy (429) |
 | Request `DONE` but thumbnails are missing | No object store configured (thumbnails cannot be stored), or single pictures failed: `app:design-studio:thumbnails` lists them with their errors; the canvas retry button files a new request |

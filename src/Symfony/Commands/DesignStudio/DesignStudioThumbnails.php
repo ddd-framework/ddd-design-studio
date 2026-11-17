@@ -6,6 +6,7 @@ namespace DDD\Symfony\Commands\DesignStudio;
 
 use DDD\Domain\DesignStudio\Entities\Directory\DesignDirectoryBoard;
 use DDD\Domain\DesignStudio\Services\DesignDirectoryReaderService;
+use DDD\Domain\DesignStudio\Services\DesignStudioThumbnailRenderPicturesService;
 use DDD\Domain\DesignStudio\Services\DesignStudioThumbnailRenderRequestsService;
 use DDD\Domain\DesignStudio\Services\DesignStudioThumbnailsService;
 use DDD\Domain\DesignStudio\Services\DesignThemeProviderService;
@@ -26,7 +27,7 @@ class DesignStudioThumbnails extends DesignStudioCommand
     {
         $this->addCanvasArguments();
         $this->addOption('theme', null, InputOption::VALUE_REQUIRED, 'Theme reference `<themeId>[:<mode>]`; omitted = the reference theme of the canvas')
-            ->addOption('render', null, InputOption::VALUE_NONE, 'Requests the missing thumbnails (the render worker makes them)');
+            ->addOption('render', null, InputOption::VALUE_NONE, 'Requests the missing thumbnails, one message per picture (after a failed or incomplete request: only the pictures still missing)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -78,8 +79,20 @@ class DesignStudioThumbnails extends DesignStudioCommand
         }
         $renderRequest = $designStudioThumbnailRenderRequestsService->findLatestRequest($canvasDefinition, $themeHash);
         if ($renderRequest) {
-            $output->writeln("render request #$renderRequest->id: $renderRequest->status, " . ($renderRequest->attempts ?? 0) . ' attempt(s)'
-                . (($renderRequest->lastError ?? null) ? " — $renderRequest->lastError" : ''));
+            /** @var DesignStudioThumbnailRenderPicturesService $designStudioThumbnailRenderPicturesService */
+            $designStudioThumbnailRenderPicturesService = DDDService::instance()->getService(DesignStudioThumbnailRenderPicturesService::class);
+            $designStudioThumbnailRenderPictureCounts = $designStudioThumbnailRenderPicturesService->findPictureCounts($renderRequest);
+            $output->writeln(sprintf(
+                'render request #%d: %s, %d of %d pictures done, %d failed, %d skipped, %d queued%s',
+                $renderRequest->id,
+                $renderRequest->status,
+                $designStudioThumbnailRenderPictureCounts->doneCount,
+                $designStudioThumbnailRenderPictureCounts->getTotalCount(),
+                $designStudioThumbnailRenderPictureCounts->failedCount,
+                $designStudioThumbnailRenderPictureCounts->skippedCount,
+                $designStudioThumbnailRenderPictureCounts->queuedCount,
+                ($renderRequest->lastError ?? null) ? " — $renderRequest->lastError" : ''
+            ));
             foreach ($renderRequest->getFailedBoards()->getElements() as $designStudioThumbnailRenderFailure) {
                 $output->writeln("  failed: $designStudioThumbnailRenderFailure->renderTargetKey — $designStudioThumbnailRenderFailure->error");
             }

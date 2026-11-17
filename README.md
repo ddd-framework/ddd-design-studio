@@ -73,13 +73,14 @@ The console commands extend Symfony's `Command` and are registered automatically
 
 ### 2. Create the tables
 
-Create the four tables through the framework's schema diff (see the `ddd-database-schema-diff-specialist` skill in
+Create the five tables through the framework's schema diff (see the `ddd-database-schema-diff-specialist` skill in
 `vendor/mgamadeus/ddd`):
 
 - `DesignStudioComments`
 - `DesignStudioBoardStatuses`
 - `DesignStudioThumbnails`
 - `DesignStudioThumbnailRenderRequests`
+- `DesignStudioThumbnailRenderPictures`
 
 ### 3. Declare projects and canvases
 
@@ -250,9 +251,16 @@ bearer token is never sent to the renderer.
 The module posts JSON `{ "html", "width", "height", "themes": [{ "themeHash", "css" }] }` and reads `images[]` from the
 answer, each with `themeHash` and a base64 PNG in `full`.
 
-**b) Register the Messenger handler.** It is not registered automatically. Add to `services.yaml`:
+**b) Register the Messenger handlers.** They are not registered automatically. Add to `services.yaml`:
 
 ```yaml
+# renders one picture
+DDD\Domain\DesignStudio\MessageHandlers\RenderDesignStudioThumbnailHandler:
+    tags:
+        - { name: messenger.message_handler, from_transport: render_design_studio_thumbnails }
+    bind:
+        Psr\Log\LoggerInterface $messengerLogger: '@monolog.logger.messenger'
+# deprecated, until the next minor release: converts shard messages of 0.8 queued at deploy time into picture messages
 DDD\Domain\DesignStudio\MessageHandlers\RenderDesignStudioThumbnailsHandler:
     tags:
         - { name: messenger.message_handler, from_transport: render_design_studio_thumbnails }
@@ -268,6 +276,8 @@ framework:
         transports:
             render_design_studio_thumbnails: '%env(MESSENGER_TRANSPORT_DSN_RABBITMQ)%/render_design_studio_thumbnails'
         routing:
+            'DDD\Domain\DesignStudio\MessageHandlers\RenderDesignStudioThumbnailMessage': render_design_studio_thumbnails
+            # deprecated, until the next minor release (shard messages of 0.8)
             'DDD\Domain\DesignStudio\MessageHandlers\RenderDesignStudioThumbnailsMessage': render_design_studio_thumbnails
 ```
 
@@ -279,9 +289,13 @@ The handler is bound to the transport name `render_design_studio_thumbnails`; th
 php bin/console messenger:consume render_design_studio_thumbnails
 ```
 
-A render request runs in as many shards as the configured concurrency, one message each. Run at least that many
-consumer processes, or the shards run one after another. The worker reads the boards from its own checkout, so it needs
-the canvas folders too. Rebuild the container before (re)starting workers after shipping the handler registration.
+Every picture is one message; each consumer process renders one picture at a time, so **the number of consumer
+processes is the number of pictures rendered at once** — there is no setting for it. Run as many as the renderer
+renders at once (its queue answers 429 beyond that, which only delays pictures): 2 for the example renderer on one
+small machine, more for a renderer with more workers. One picture holds a consumer for at most the renderer timeout
+(`timeoutSeconds`, 60 s) plus the thumbnail store's timeouts. The worker reads the boards from its own checkout, so it
+needs the canvas folders too. Rebuild the container before (re)starting workers after shipping the handler
+registration.
 
 ### 9. Optional: access policy and themes
 
@@ -397,8 +411,7 @@ that is already in the store is not uploaded again.
 | `endpoint` | `POST:<absolute URL>` or `POST:<path>` relative to the Argus base URL | `POST:/designBoardRenderer/thumbnails` |
 | `endpointEnv` | name of an environment variable with an absolute URL that replaces the endpoint; `null` = none | `DESIGN_BOARD_RENDERER_ENDPOINT` |
 | `tokenEnv` | name of the environment variable with the caller token (`X-Render-Token`); `null` or empty variable = no header | `DESIGN_BOARD_RENDERER_TOKEN` |
-| `concurrency` | boards rendered at once = shards of a render request (1 to 8) | `2` |
-| `concurrencyEnv` | name of an environment variable that overrides the concurrency; `null` = none | `DESIGN_RENDER_CONCURRENCY` |
+| `timeoutSeconds` | seconds one render call may take; a slower answer counts as unanswered and the picture is tried again later | `60` |
 | `rendererVersion` | part of every thumbnail key; change it when the renderer's output changes and every thumbnail is rendered anew | `playwright-1.64.1` |
 
 ### `devices.php` — `DesignStudio.devices`
@@ -664,22 +677,28 @@ prune runs without account rights.
 renderer version. A changed board, changed theme CSS or a new renderer version simply has no thumbnail yet; nothing is
 invalidated. Thumbnail rows can be deleted at any time and are rendered again on demand.
 
-**Render requests.** At most one open request per canvas and theme hash; a second request only refreshes the priority
-boards. A run renders the boards of its shard (priority boards first) for at most 90 seconds, then continues in a new
-message. Renderer answers 401, 404, 429, 502 to 504 and transport failures make the request wait
-(`WAITING_FOR_RENDERER`) and retry with exponential backoff (30 seconds doubling up to 4 minutes, 30 attempts, then
-`FAILED`).
+**Render requests: one message per picture.** At most one open request per canvas and theme hash. Filing a request
+lists its pictures — every fixed board and every device frame of a responsive board without a thumbnail, the boards on
+screen first — in `DesignStudioThumbnailRenderPictures` (one row each) and dispatches one
+`RenderDesignStudioThumbnailMessage` per picture in that order. Each consumer process renders one picture at a time; no
+picture waits for another. A picture reads its board from the worker's checkout: a board changed since the request was
+filed is rendered in its current version, a board that is gone is skipped.
 
-**One picture never blocks the others.** Anything else that goes wrong with one picture — the renderer refuses it
-(400), its render throws, storing its thumbnail fails or times out, the answer is no image — skips that picture: the
-run renders the rest, tries the failed pictures once more at its end, and records those that failed again on the
-request (`failedBoards`: one line per picture with its error; `lastError`: `k picture(s) failed: <board>: <error>; …`).
-The request does not try a recorded picture again; a new version of the board, or a new request (the canvas' retry
-button, `--render`), does. A request that ends with an error and rendered no picture is `FAILED`; one that rendered
-pictures is `DONE`, its failed pictures listed. The canvas view carries `thumbnailPictureCount`,
-`renderRequestFailedBoards` (failed pictures that are still missing, with their errors) and `isThemeStyleUnstable`; the
-canvas shows "n of m, k failed" with the reason per picture and files no new request on its own after a failed or
-incomplete one.
+**A failing picture never blocks the others.** A failed try — the renderer busy or unreachable (401, 404, 429, 502 to
+504, transport, no answer within `timeoutSeconds`), a render or store that throws or times out, an answer that is no
+image — is dispatched again with a delay (30 s, 60 s, 120 s, 240 s, plus up to 10 s jitter) for at most 5 tries; a
+busy renderer shows the request as `WAITING_FOR_RENDERER` meanwhile. After the last try, or at once when the renderer
+refuses the picture (e.g. HTTP 400), the picture is `FAILED` with its reason: on its row, in the request's
+`failedBoards` (one line per picture) and in `lastError` (`k picture(s) failed: <board>: <error>; …`). Each picture
+reaches its final status exactly once (compare-and-set; a redelivered or duplicate message changes nothing).
+
+**The request closes when its pictures add up:** done, failed and skipped against the total. It is `DONE` when it
+stored a picture or ended without an error, `FAILED` when it ends with an error and stored none. The canvas view
+carries `thumbnailPictureCount`, `renderRequestFailedBoards` (failed pictures still missing, with their errors) and
+`isThemeStyleUnstable`; the canvas shows progress while the request runs, "n of m, k failed" with the reason per
+picture afterwards, and files no new request on its own after a failed or incomplete one. Its retry button and
+`app:design-studio:thumbnails --render` file a new request, which dispatches only the pictures still missing — the
+failed ones (and boards changed since).
 
 **Theme provider that answers another style on each call** (an embedded picture with its encode time, a random id):
 every call names another look, so no thumbnail ever matches. The canvas view (`isThemeStyleUnstable`,
@@ -687,12 +706,10 @@ every call names another look, so no thumbnail ever matches. The canvas view (`i
 (a warning) name it; no request is filed. A worker that sees it on a filed request ends the request `FAILED` with that
 reason; a theme whose style really changed since the request was filed ends it with "the theme changed since the
 request was filed".
-A board whose file or asset files change between the listing and its render (boards regenerated during a run) is read
-again in a follow-up run of its shard 10 seconds later. A shard that is through looks at the other shards' boards every
-minute; the request closes when nothing is missing, or when the missing boards stayed the same for 3 minutes while no
-shard waits for the renderer (`lastError` then says how many could not be rendered). Every run (a redelivered one too), every stored
-thumbnail, every retry and every watching look writes the request (its modified time); an open request without any
-write for 5 minutes counts as lost: opening the canvas closes it as `FAILED` and files a new one.
+
+**Lost requests.** Every picture message (a retry too) and every stored thumbnail writes the request (its modified
+time); an open request without any write for 5 minutes counts as lost: opening the canvas closes it as `FAILED` and
+files a new one.
 
 ## Security
 

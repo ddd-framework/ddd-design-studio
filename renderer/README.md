@@ -138,5 +138,6 @@ node server.js --port=18080 --channel=chrome   # auth off without RENDER_TOKENS_
 
 `config/app/DesignStudio/renderer.php` (an application file replaces the module default as a whole): `enabled` true,
 `endpoint` (`POST:<absolute URL>` or a path relative to the Argus base URL), `tokenEnv` (name of the environment
-variable holding the token), `concurrency`, `rendererVersion`. See the module README for the Messenger transport and
+variable holding the token), `timeoutSeconds`, `rendererVersion`. Pictures rendered at once = consumer processes of
+the render transport. See the module README for the Messenger transport and
 the worker.

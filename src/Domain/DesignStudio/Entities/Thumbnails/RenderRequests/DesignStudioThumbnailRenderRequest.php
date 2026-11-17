@@ -17,7 +17,8 @@ use Symfony\Component\Validator\Constraints\NotNull;
 
 /**
  * The order to render the missing thumbnails of a canvas in one look. Filed when someone looks at a canvas whose
- * thumbnails are incomplete; worked off by the render worker in runs (DesignStudioThumbnailRenderRequestsService).
+ * thumbnails are incomplete; its pictures (DesignStudioThumbnailRenderPicture) are rendered by one message each
+ * (DesignStudioThumbnailRenderRequestsService); it closes when they are all done, failed or skipped.
  * At most one open request per canvas and theme hash.
  *
  * @method static DesignStudioThumbnailRenderRequestsService getService()
@@ -35,13 +36,13 @@ class DesignStudioThumbnailRenderRequest extends Entity
     /** @var string A run is rendering */
     public const string STATUS_RUNNING = 'RUNNING';
 
-    /** @var string The renderer is busy or unreachable; a retry is scheduled */
+    /** @var string The renderer was busy or unreachable for a picture; its retry is scheduled, the others go on */
     public const string STATUS_WAITING_FOR_RENDERER = 'WAITING_FOR_RENDERER';
 
     /** @var string Nothing is missing any more */
     public const string STATUS_DONE = 'DONE';
 
-    /** @var string Given up: too many waiting runs, or the request ended with an error and without any rendered picture */
+    /** @var string Ended with an error and without any rendered picture (or replaced after no sign of life) */
     public const string STATUS_FAILED = 'FAILED';
 
     /** @var string[] Statuses of a request that still has work to do */
@@ -80,7 +81,11 @@ class DesignStudioThumbnailRenderRequest extends Entity
     #[DatabaseIndex(indexType: DatabaseIndex::TYPE_NONE)]
     public ?string $priorityBoardKeys;
 
-    /** @var int|null Waiting runs in a row */
+    /** @var int|null Pictures of the request (one DesignStudioThumbnailRenderPicture and one message each) */
+    #[DatabaseIndex(indexType: DatabaseIndex::TYPE_NONE)]
+    public ?int $pictureCount;
+
+    /** @var int|null Waiting runs in a row (requests of 0.8 and earlier; per picture since 0.9: DesignStudioThumbnailRenderPicture::$attempts) */
     #[DatabaseIndex(indexType: DatabaseIndex::TYPE_NONE)]
     public ?int $attempts;
 

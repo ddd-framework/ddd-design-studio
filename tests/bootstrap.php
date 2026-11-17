@@ -29,3 +29,6 @@ $testCacheDir = sys_get_temp_dir() . '/ddd_design_studio_phpunit_cache';
 ])));
 
 Config::addConfigDirectory($moduleRoot . '/config/app', isModule: true);
+
+// what an application kernel sets: lazy relations (a render picture's request) load from the database repos
+(new ReflectionProperty(DDD\Domain\Base\Entities\LazyLoad\LazyLoadRepo::class, 'defaultRepoType'))->setValue(null, DDD\Domain\Base\Entities\LazyLoad\LazyLoadRepo::DB);

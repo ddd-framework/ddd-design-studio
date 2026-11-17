@@ -40,6 +40,8 @@ class ArgusDesignBoardRenderedThumbnails extends DesignBoardRenderedThumbnails
     {
         $argusSettings = $this->getArgusSettings();
         $argusSettings->argusLoad->loadEndpoint = static::getConfiguredEndpoint();
+        // one picture never holds a render consumer for minutes
+        $argusSettings->timeout = static::getConfiguredTimeoutSeconds();
         // a refused / timed-out call answers null instead of throwing out of the load
         $argusSettings->keepFulfilledCallsWhenOneIsRejected = true;
         // false: the load already ran to the end (blocking) — nothing to receive
@@ -63,6 +65,18 @@ class ArgusDesignBoardRenderedThumbnails extends DesignBoardRenderedThumbnails
         $this->isRenderInFlight = false;
         $this->receiveArgusLoadResponses();
         $this->markUnanswered();
+    }
+
+    /** @var int Fallback of the config `DesignStudio.renderer.timeoutSeconds` */
+    public const int DEFAULT_TIMEOUT_SECONDS = 60;
+
+    /**
+     * @return float seconds a render call may take before it counts as unanswered (a retryable failure)
+     */
+    public static function getConfiguredTimeoutSeconds(): float
+    {
+        $timeoutSeconds = Config::get('DesignStudio.renderer.timeoutSeconds');
+        return is_numeric($timeoutSeconds) && (float)$timeoutSeconds > 0 ? (float)$timeoutSeconds : (float)static::DEFAULT_TIMEOUT_SECONDS;
     }
 
     /**

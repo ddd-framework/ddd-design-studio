@@ -9,30 +9,21 @@ use DDD\Domain\Base\Entities\MessageHandlers\AppMessageHandler;
 use DDD\Infrastructure\Services\DDDService;
 
 /**
- * Renders the missing thumbnails of a canvas through the renderer service. A run ends after the service's run budget
- * and continues in a new message; renderer outages are retried with backoff by the service, never thrown.
+ * @deprecated since 0.9.0, removed in the next minor release: a shard run of a request filed by 0.8 or earlier that
+ * was still queued at deploy time. It is converted into one RenderDesignStudioThumbnailMessage per missing picture of
+ * the request (once per request; the other shards' messages find the pictures there and end).
  *
  * Carries no AsMessageHandler attribute on purpose: the application registers it in its services.yaml with the
- * `messenger.message_handler` tag (`from_transport: render_design_studio_thumbnails`), the one place that binds it.
+ * `messenger.message_handler` tag (`from_transport: render_design_studio_thumbnails`).
  */
 class RenderDesignStudioThumbnailsHandler extends AppMessageHandler
 {
     public function __invoke(RenderDesignStudioThumbnailsMessage $renderDesignStudioThumbnailsMessage): void
     {
-        set_time_limit(DesignStudioThumbnailRenderRequestsService::RUN_BUDGET_SECONDS + 180);
         ini_set('memory_limit', '512M');
         $this->setAuthAccountFromMessage($renderDesignStudioThumbnailsMessage);
-        $this->getLogger()->info("Render design studio thumbnails for request $renderDesignStudioThumbnailsMessage->renderRequestId, shard "
-            . "$renderDesignStudioThumbnailsMessage->shard/$renderDesignStudioThumbnailsMessage->shardCount");
         /** @var DesignStudioThumbnailRenderRequestsService $designStudioThumbnailRenderRequestsService */
         $designStudioThumbnailRenderRequestsService = DDDService::instance()->getService(DesignStudioThumbnailRenderRequestsService::class);
-        $designStudioThumbnailRenderRequestsService->processRequest(
-            (int)$renderDesignStudioThumbnailsMessage->renderRequestId,
-            $renderDesignStudioThumbnailsMessage->shard,
-            $renderDesignStudioThumbnailsMessage->shardCount,
-            $renderDesignStudioThumbnailsMessage->changedBoardFollowUpCount,
-            $renderDesignStudioThumbnailsMessage->remainingBoardsFingerprint,
-            $renderDesignStudioThumbnailsMessage->remainingBoardsUnchangedSince
-        );
+        $designStudioThumbnailRenderRequestsService->convertShardRunToPictureMessages((int)$renderDesignStudioThumbnailsMessage->renderRequestId);
     }
 }

@@ -18,10 +18,9 @@ return [
     'endpointEnv' => 'DESIGN_BOARD_RENDERER_ENDPOINT',
     // name of the env variable with the caller token sent as X-Render-Token; null or an empty variable = no header
     'tokenEnv' => 'DESIGN_BOARD_RENDERER_TOKEN',
-    // boards rendered at once = shards of a render request (the render consumer needs at least as many replicas)
-    'concurrency' => 2,
-    // name of an env variable that overrides the concurrency per environment; null = none
-    'concurrencyEnv' => 'DESIGN_RENDER_CONCURRENCY',
+    // seconds one render call may take; a slower answer counts as unanswered and the picture is tried again later
+    // (pictures rendered at once = consumer processes of render_design_studio_thumbnails; there is no setting for it)
+    'timeoutSeconds' => 60,
     // part of every thumbnail key: change it when the renderer's output changes (browser, fonts) and every thumbnail
     // is rendered anew
     'rendererVersion' => 'playwright-1.64.1',

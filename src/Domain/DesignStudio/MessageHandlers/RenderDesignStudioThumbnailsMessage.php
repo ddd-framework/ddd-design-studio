@@ -7,7 +7,9 @@ namespace DDD\Domain\DesignStudio\MessageHandlers;
 use DDD\Domain\Base\Entities\MessageHandlers\AppMessage;
 
 /**
- * One render run of a DesignStudioThumbnailRenderRequest (DesignStudioThumbnailRenderRequestsService::processRequest).
+ * @deprecated since 0.9.0, removed in the next minor release: one shard run of a render request of 0.8 or earlier.
+ * Only handled to convert messages still queued at deploy time (RenderDesignStudioThumbnailsHandler); nothing
+ * dispatches it any more. Pictures are rendered by RenderDesignStudioThumbnailMessage.
  */
 class RenderDesignStudioThumbnailsMessage extends AppMessage
 {

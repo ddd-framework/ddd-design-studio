@@ -40,6 +40,9 @@ class DBDesignStudioThumbnailRenderRequestModel extends DoctrineModel
 	public ?string $priorityBoardKeys;
 
 	#[ORM\Column(type: 'integer')]
+	public ?int $pictureCount;
+
+	#[ORM\Column(type: 'integer')]
 	public ?int $attempts;
 
 	#[ORM\Column(type: 'string')]

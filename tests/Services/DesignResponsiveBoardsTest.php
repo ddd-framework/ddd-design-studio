@@ -13,7 +13,6 @@ use DDD\Domain\DesignStudio\Entities\Views\DesignStudioBoardView;
 use DDD\Domain\DesignStudio\Services\DesignDevicesService;
 use DDD\Domain\DesignStudio\Services\DesignStudioCanvasViewsService;
 use DDD\Domain\DesignStudio\Services\DesignDirectoryReaderService;
-use DDD\Domain\DesignStudio\Services\DesignStudioThumbnailRenderRequestsService;
 use DDD\Domain\DesignStudio\Services\DesignStudioThumbnailsService;
 use DDD\Tests\DesignStudio\Support\FixedRootDesignDirectoryReaderService;
 use PHPUnit\Framework\TestCase;
@@ -154,10 +153,7 @@ class DesignResponsiveBoardsTest extends TestCase
             'a fixed board keeps the key it had before frames'
         );
         $this->assertSame(3, $designStudioThumbnailsService->expandRenderTargets($renderTargets)->count(), 'targets stay targets');
-        $this->assertSame(
-            DesignStudioThumbnailRenderRequestsService::getShardOfBoard('home.html@iphone-16', 4),
-            DesignStudioThumbnailRenderRequestsService::getShardOfBoard($renderTargets->getElements()[1]->getRenderTargetKey(), 4)
-        );
+        $this->assertSame('home.html@iphone-16', $renderTargets->getElements()[1]->getRenderTargetKey(), 'a frame is a picture (and a message) of its own');
     }
 
     public function testMetaContentIsReadWithEitherAttributeOrderAndQuoting(): void

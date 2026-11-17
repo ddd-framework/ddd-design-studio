@@ -9,7 +9,6 @@ use DDD\Domain\DesignStudio\Entities\Directory\DesignDirectoryBoards;
 use DDD\Domain\DesignStudio\Entities\Thumbnails\DesignStudioThumbnail;
 use DDD\Domain\DesignStudio\Entities\Thumbnails\DesignStudioThumbnails;
 use DDD\Domain\DesignStudio\Entities\Thumbnails\RenderRequests\DesignStudioThumbnailRenderRequest;
-use DDD\Domain\DesignStudio\Services\DesignStudioThumbnailRenderRequestsService;
 use DDD\Domain\DesignStudio\Services\DesignStudioThumbnailsService;
 use DDD\Domain\DesignStudio\Services\DesignThemeProviderService;
 use PHPUnit\Framework\TestCase;
@@ -82,19 +81,6 @@ class DesignStudioThumbnailsServiceTest extends TestCase
             ['d.html', 'c.html', 'a.html'],
             array_map(static fn(DesignDirectoryBoard $board): ?string => $board->boardKey, $missingBoards->getElements())
         );
-    }
-
-    public function testABoardAlwaysBelongsToTheSameShard(): void
-    {
-        $shards = [];
-        foreach (['a.html', 'b.html', 'c.html', 'd.html', 'e.html', 'f.html'] as $boardKey) {
-            $shard = DesignStudioThumbnailRenderRequestsService::getShardOfBoard($boardKey, 2);
-            $this->assertSame($shard, DesignStudioThumbnailRenderRequestsService::getShardOfBoard($boardKey, 2));
-            $this->assertContains($shard, [0, 1]);
-            $shards[$shard] = true;
-        }
-        $this->assertCount(2, $shards);
-        $this->assertSame(0, DesignStudioThumbnailRenderRequestsService::getShardOfBoard('a.html', 1));
     }
 
     public function testPriorityBoardKeysOfARequest(): void
