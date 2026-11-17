@@ -46,6 +46,12 @@ class DBDesignStudioThumbnailRenderRequestModel extends DoctrineModel
 	public ?string $lastError;
 
 	#[ORM\Column(type: 'integer')]
+	public ?int $renderedThumbnailCount;
+
+	#[ORM\Column(type: 'string')]
+	public ?string $failedBoards;
+
+	#[ORM\Column(type: 'integer')]
 	public ?int $requestedByAccountId;
 
 	#[ORM\Id]

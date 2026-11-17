@@ -7,6 +7,8 @@ namespace DDD\Domain\DesignStudio\Services;
 use DDD\Domain\DesignStudio\Entities\Definitions\DesignCanvasDefinition;
 use DDD\Domain\DesignStudio\Entities\Directory\DesignDirectoryBoard;
 use DDD\Domain\DesignStudio\Entities\Directory\DesignDirectoryBoards;
+use DDD\Domain\DesignStudio\Entities\Thumbnails\RenderRequests\DesignStudioThumbnailRenderFailure;
+use DDD\Domain\DesignStudio\Entities\Thumbnails\RenderRequests\DesignStudioThumbnailRenderFailures;
 use DDD\Domain\DesignStudio\Entities\Thumbnails\RenderRequests\DesignStudioThumbnailRenderRequest;
 use DDD\Domain\DesignStudio\Entities\Thumbnails\RenderRequests\DesignStudioThumbnailRenderRequests;
 use DDD\Domain\DesignStudio\MessageHandlers\RenderDesignStudioThumbnailsMessage;
@@ -26,6 +28,7 @@ use ImagickException;
 use Psr\Cache\InvalidArgumentException;
 use ReflectionException;
 use Symfony\Component\Messenger\Stamp\DelayStamp;
+use Throwable;
 
 /**
  * Renders the missing thumbnails of a canvas on demand.
@@ -41,6 +44,11 @@ use Symfony\Component\Messenger\Stamp\DelayStamp;
  *   request closes. A request never stays open without a queued or running message.
  * - Renderer busy / restarting / unreachable (401, 404, 429, 502–504, transport): the request waits
  *   (WAITING_FOR_RENDERER) and is retried with exponential backoff; thumbnails stay as they are.
+ * - One picture that fails (the renderer refuses it, its render or the store of its thumbnail throws) never blocks
+ *   the others: the run skips it, renders the rest, tries the failed ones once more at its end and records those that
+ *   failed again on the request (failedBoards, with the error per picture). A recorded picture is not tried again by
+ *   this request (a new version of the board is). The request ends DONE when it rendered at least one picture, FAILED
+ *   when it ends with an error and rendered none.
  *
  * @method DesignStudioThumbnailRenderRequest find(int|string|null $entityId, bool $useEntityRegistrCache = true)
  * @method DesignStudioThumbnailRenderRequests findAll(?int $offset = null, $limit = null, bool $useEntityRegistrCache = true)
@@ -94,9 +102,21 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
      */
     public const int REMAINING_BOARDS_SETTLED_AFTER_SECONDS = 180;
 
+    /** @var string finishRender(): the picture's thumbnail is stored */
+    public const string RENDER_RESULT_STORED = 'STORED';
+
+    /** @var string finishRender(): this picture failed (recorded in the run's failures); the run goes on */
+    public const string RENDER_RESULT_FAILED = 'FAILED';
+
+    /** @var string finishRender(): the renderer is busy or down; the request waits and this run ends */
+    public const string RENDER_RESULT_RENDERER_UNAVAILABLE = 'RENDERER_UNAVAILABLE';
+
+    /** @var int Pictures named in the request's lastError when it ends with failed pictures */
+    public const int FAILED_BOARDS_NAMED_IN_LAST_ERROR = 3;
+
     /**
-     * Files (or refreshes) the render request of a canvas in a look; null when the renderer is off or nothing is
-     * missing.
+     * Files (or refreshes) the render request of a canvas in a look; null when the renderer is off, nothing is
+     * missing or the theme provider answers a different style on every call (DesignThemeProviderService::isThemeStyleStable()).
      * @param DesignCanvasDefinition $canvasDefinition
      * @param string|null $themeReference `<themeId>[:<mode>]`, null = no theme
      * @param string[] $priorityBoardKeys the boards on screen (rendered first)
@@ -119,7 +139,14 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
         if (!$designStudioThumbnailsService->isRendererEnabled()) {
             return null;
         }
-        $themeHash = DesignThemeProviderService::computeThemeHash($this->getThemeStyle($themeReference));
+        $themeStyle = $this->getThemeStyle($themeReference);
+        /** @var DesignThemeProviderService $designThemeProviderService */
+        $designThemeProviderService = DDDService::instance()->getService(DesignThemeProviderService::class);
+        if (!$designThemeProviderService->isThemeStyleStable($themeReference, $themeStyle)) {
+            // every look would get a hash of its own: nothing is filed, the canvas view and the console name the cause
+            return null;
+        }
+        $themeHash = DesignThemeProviderService::computeThemeHash($themeStyle);
         $priorityBoardKeys = array_slice(array_values(array_unique(array_filter(array_map('strval', $priorityBoardKeys)))), 0, static::MAX_PRIORITY_BOARDS);
         $priorityList = implode("\n", $priorityBoardKeys);
         $latestRenderRequest = $this->findLatestRequest($canvasDefinition, $themeHash);
@@ -236,8 +263,18 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
         $themeStyle = $this->getThemeStyle($renderRequest->themeReference ?? null);
         $themeHash = DesignThemeProviderService::computeThemeHash($themeStyle);
         if ($themeHash !== $renderRequest->themeHash) {
-            // the theme's colours changed since the request was filed: the next look at the canvas files a new one
-            $this->setStatus($renderRequest, DesignStudioThumbnailRenderRequest::STATUS_DONE, 'the theme changed since the request was filed');
+            /** @var DesignThemeProviderService $designThemeProviderService */
+            $designThemeProviderService = DDDService::instance()->getService(DesignThemeProviderService::class);
+            $this->closeRequest(
+                $renderRequest,
+                null,
+                $designThemeProviderService->isThemeStyleStable($renderRequest->themeReference ?? null, $themeStyle)
+                    // the theme's colours changed since the request was filed: the next look at the canvas files a new one
+                    ? DesignThemeProviderService::THEME_CHANGED_ERROR
+                    // a provider that answers a different style on every call (an embedded timestamp, …): no picture
+                    // can ever be matched to a look, the provider has to be fixed
+                    : DesignThemeProviderService::THEME_STYLE_UNSTABLE_ERROR
+            );
             return;
         }
         $designStudioThumbnailsService = $this->getDesignStudioThumbnailsService();
@@ -247,14 +284,17 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
             $themeHash,
             $renderRequest->getPriorityBoardKeyList()
         );
-        if (!$boardsWithoutThumbnail->count()) {
-            $this->setStatus($renderRequest, DesignStudioThumbnailRenderRequest::STATUS_DONE, null);
+        // pictures this request already failed (any shard) are not tried again; a new version of the board is
+        $renderFailures = $this->findRenderFailures($renderRequest);
+        $renderableBoards = static::findBoardsWithoutRecordedFailure($boardsWithoutThumbnail, $renderFailures);
+        if (!$renderableBoards->count()) {
+            $this->closeRequest($renderRequest, $renderFailures);
             return;
         }
         // this shard's boards: stable by board key (a hand-over or backoff never moves a board to another shard while
         // that one renders it), priority order kept within the shard
         $shardBoards = array_values(array_filter(
-            $boardsWithoutThumbnail->getElements(),
+            $renderableBoards->getElements(),
             static fn(DesignDirectoryBoard $designDirectoryBoard): bool => static::getShardOfBoard($designDirectoryBoard->getRenderTargetKey(), $shardCount) === $shard
         ));
         if (!$shardBoards) {
@@ -270,38 +310,66 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
         $startedAt = time();
         $renderedBoardCount = 0;
         $changedBoardKeys = [];
+        // pictures that failed once in this run: skipped, tried once more at the end of the run
+        $boardsToRetry = new DesignDirectoryBoards();
+        $runFailures = new DesignStudioThumbnailRenderFailures();
         // one board at a time per shard; the next one is already rendering while the previous one is stored
         $pendingBoard = null;
         $pendingRenderer = null;
         foreach ($shardBoards as $designDirectoryBoard) {
             $isOverBudget = time() - $startedAt >= static::RUN_BUDGET_SECONDS;
-            $startedRenderer = $isOverBudget ? null : $this->startRender($canvasDefinition, $designDirectoryBoard, $themeHash, $themeStyle);
-            if (!$isOverBudget && $startedRenderer === null) {
-                $changedBoardKeys[] = (string)$designDirectoryBoard->boardKey;
+            $startedRenderer = null;
+            if (!$isOverBudget) {
+                try {
+                    $startedRenderer = $this->startRender($canvasDefinition, $designDirectoryBoard, $themeHash, $themeStyle);
+                    if ($startedRenderer === null) {
+                        $changedBoardKeys[] = (string)$designDirectoryBoard->boardKey;
+                    }
+                } catch (Throwable $throwable) {
+                    $designStudioThumbnailRenderFailure = DesignStudioThumbnailRenderFailure::fromBoard($designDirectoryBoard, 'rendering failed: ' . $throwable->getMessage());
+                    $runFailures->add($designStudioThumbnailRenderFailure);
+                    $boardsToRetry->add($designDirectoryBoard);
+                }
             }
             if ($pendingRenderer !== null) {
-                if (!$this->finishRender($renderRequest, $pendingBoard, $pendingRenderer, $shard, $shardCount)) {
-                    $startedRenderer?->finishRender();
+                $renderResult = $this->finishRender($renderRequest, $pendingBoard, $pendingRenderer, $shard, $shardCount, $runFailures);
+                if ($renderResult === static::RENDER_RESULT_RENDERER_UNAVAILABLE) {
+                    $this->abandonRender($startedRenderer);
                     return;
                 }
-                $renderedBoardCount++;
+                if ($renderResult === static::RENDER_RESULT_STORED) {
+                    $renderedBoardCount++;
+                } else {
+                    $boardsToRetry->add($pendingBoard);
+                }
             }
             $pendingBoard = $startedRenderer ? $designDirectoryBoard : null;
             $pendingRenderer = $startedRenderer;
             if ($isOverBudget) {
                 // hand over: a fresh message of this shard continues (and sees priorities refreshed meanwhile)
                 $this->logRun($renderRequest, $shard, $shardCount, $renderedBoardCount, $startedAt);
+                if (!$this->retryFailedBoards($renderRequest, $canvasDefinition, $boardsToRetry, $themeHash, $themeStyle, $shard, $shardCount)) {
+                    return;
+                }
                 $this->dispatchRun($renderRequest, 0, $shard, $shardCount);
                 return;
             }
         }
         if ($pendingRenderer !== null) {
-            if (!$this->finishRender($renderRequest, $pendingBoard, $pendingRenderer, $shard, $shardCount)) {
+            $renderResult = $this->finishRender($renderRequest, $pendingBoard, $pendingRenderer, $shard, $shardCount, $runFailures);
+            if ($renderResult === static::RENDER_RESULT_RENDERER_UNAVAILABLE) {
                 return;
             }
-            $renderedBoardCount++;
+            if ($renderResult === static::RENDER_RESULT_STORED) {
+                $renderedBoardCount++;
+            } else {
+                $boardsToRetry->add($pendingBoard);
+            }
         }
         $this->logRun($renderRequest, $shard, $shardCount, $renderedBoardCount, $startedAt);
+        if (!$this->retryFailedBoards($renderRequest, $canvasDefinition, $boardsToRetry, $themeHash, $themeStyle, $shard, $shardCount)) {
+            return;
+        }
         if ($changedBoardKeys !== []) {
             if ($changedBoardFollowUpCount < static::MAX_CHANGED_BOARD_FOLLOW_UPS) {
                 // a board changed between the listing and its render: read the boards again and render the new version
@@ -316,6 +384,132 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
             $themeHash
         );
         $this->closeOrWatchRequest($renderRequest, $remainingBoards, $shard, $shardCount, $remainingBoardsFingerprint, $remainingBoardsUnchangedSince);
+    }
+
+    /**
+     * Tries the pictures that failed once in this run a second time (render and store); those that fail again are
+     * recorded on the request with their error and not tried again by it.
+     * @param DesignStudioThumbnailRenderRequest $renderRequest
+     * @param DesignCanvasDefinition $canvasDefinition
+     * @param DesignDirectoryBoards $boardsToRetry
+     * @param string $themeHash
+     * @param string|null $themeStyle
+     * @param int $shard
+     * @param int $shardCount
+     * @return bool false when the renderer became unavailable (the request waits, this run ends)
+     */
+    protected function retryFailedBoards(
+        DesignStudioThumbnailRenderRequest $renderRequest,
+        DesignCanvasDefinition $canvasDefinition,
+        DesignDirectoryBoards $boardsToRetry,
+        string $themeHash,
+        ?string $themeStyle,
+        int $shard,
+        int $shardCount
+    ): bool {
+        $finalFailures = new DesignStudioThumbnailRenderFailures();
+        foreach ($boardsToRetry->getElements() as $designDirectoryBoard) {
+            $retryFailures = new DesignStudioThumbnailRenderFailures();
+            try {
+                $renderer = $this->startRender($canvasDefinition, $designDirectoryBoard, $themeHash, $themeStyle);
+            } catch (Throwable $throwable) {
+                $designStudioThumbnailRenderFailure = DesignStudioThumbnailRenderFailure::fromBoard($designDirectoryBoard, 'rendering failed: ' . $throwable->getMessage());
+                $finalFailures->add($designStudioThumbnailRenderFailure);
+                continue;
+            }
+            if ($renderer === null) {
+                // the board changed meanwhile: its new version is missing and read again by a later run
+                continue;
+            }
+            $renderResult = $this->finishRender($renderRequest, $designDirectoryBoard, $renderer, $shard, $shardCount, $retryFailures);
+            if ($renderResult === static::RENDER_RESULT_RENDERER_UNAVAILABLE) {
+                return false;
+            }
+            if ($renderResult === static::RENDER_RESULT_FAILED && $retryFailures->count()) {
+                $designStudioThumbnailRenderFailure = $retryFailures->first();
+                $finalFailures->add($designStudioThumbnailRenderFailure);
+            }
+        }
+        if ($finalFailures->count()) {
+            $this->recordRenderFailures($renderRequest, $finalFailures);
+        }
+        return true;
+    }
+
+    /**
+     * Waits for a render that is no longer needed (the run ends); its result and errors are dropped.
+     * @param ArgusDesignBoardRenderedThumbnails|null $renderer
+     * @return void
+     */
+    protected function abandonRender(?ArgusDesignBoardRenderedThumbnails $renderer): void
+    {
+        if ($renderer === null) {
+            return;
+        }
+        try {
+            $renderer->finishRender();
+        } catch (Throwable) {
+            // nothing depends on it
+        }
+    }
+
+    /**
+     * @param DesignDirectoryBoards $boardsWithoutThumbnail
+     * @param DesignStudioThumbnailRenderFailures $renderFailures
+     * @return DesignDirectoryBoards the boards without a recorded failure of their current version
+     */
+    public static function findBoardsWithoutRecordedFailure(
+        DesignDirectoryBoards $boardsWithoutThumbnail,
+        DesignStudioThumbnailRenderFailures $renderFailures
+    ): DesignDirectoryBoards {
+        if (!$renderFailures->count()) {
+            return $boardsWithoutThumbnail;
+        }
+        $renderableBoards = new DesignDirectoryBoards();
+        foreach ($boardsWithoutThumbnail->getElements() as $designDirectoryBoard) {
+            if (!$renderFailures->findForBoard($designDirectoryBoard)) {
+                $renderableBoards->add($designDirectoryBoard);
+            }
+        }
+        return $renderableBoards;
+    }
+
+    /**
+     * Ends a request: FAILED when it ends with an error (its own lastError, failed pictures, $error) and rendered no
+     * picture, otherwise DONE (failed pictures are named in lastError and kept in failedBoards).
+     * @param DesignStudioThumbnailRenderRequest $renderRequest
+     * @param DesignStudioThumbnailRenderFailures|null $renderFailures the request's recorded failures, null = read them
+     * @param string|null $error why the request ends, when not because nothing is left
+     * @return void
+     */
+    protected function closeRequest(
+        DesignStudioThumbnailRenderRequest $renderRequest,
+        ?DesignStudioThumbnailRenderFailures $renderFailures = null,
+        ?string $error = null
+    ): void {
+        $renderFailures ??= $this->findRenderFailures($renderRequest);
+        $lastError = $error ?? static::describeRenderFailures($renderFailures) ?? ($renderRequest->lastError ?? null);
+        $status = $lastError !== null && $this->findRenderedThumbnailCount($renderRequest) === 0
+            ? DesignStudioThumbnailRenderRequest::STATUS_FAILED
+            : DesignStudioThumbnailRenderRequest::STATUS_DONE;
+        $this->setStatus($renderRequest, $status, $lastError !== null ? mb_substr($lastError, 0, 1000) : null);
+    }
+
+    /**
+     * @param DesignStudioThumbnailRenderFailures $renderFailures
+     * @return string|null `2 picture(s) failed: a.html: …; b.html: …`, null without failures
+     */
+    public static function describeRenderFailures(DesignStudioThumbnailRenderFailures $renderFailures): ?string
+    {
+        if (!$renderFailures->count()) {
+            return null;
+        }
+        $namedFailures = [];
+        foreach (array_slice($renderFailures->getElements(), 0, static::FAILED_BOARDS_NAMED_IN_LAST_ERROR) as $designStudioThumbnailRenderFailure) {
+            $namedFailures[] = $designStudioThumbnailRenderFailure->renderTargetKey . ': ' . $designStudioThumbnailRenderFailure->error;
+        }
+        return $renderFailures->count() . ' picture(s) failed: ' . implode('; ', $namedFailures)
+            . ($renderFailures->count() > count($namedFailures) ? '; …' : '');
     }
 
     /**
@@ -339,6 +533,9 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
         ?string $remainingBoardsFingerprint,
         ?int $remainingBoardsUnchangedSince
     ): void {
+        // pictures a shard recorded as failed are not rendered any more by this request
+        $renderFailures = $this->findRenderFailures($renderRequest);
+        $remainingBoards = static::findBoardsWithoutRecordedFailure($remainingBoards, $renderFailures);
         $hasBoardOfAnotherShard = false;
         foreach ($remainingBoards->getElements() as $remainingBoard) {
             if (static::getShardOfBoard($remainingBoard->getRenderTargetKey(), $shardCount) !== $shard) {
@@ -348,7 +545,7 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
         }
         if (!$hasBoardOfAnotherShard) {
             // nothing missing, or what is left in this shard could not be rendered (lastError names the board)
-            $this->setStatus($renderRequest, DesignStudioThumbnailRenderRequest::STATUS_DONE, $renderRequest->lastError ?? null);
+            $this->closeRequest($renderRequest, $renderFailures);
             return;
         }
         $currentTimestamp = $this->getCurrentTimestamp();
@@ -360,10 +557,10 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
             && $currentTimestamp - $remainingBoardsUnchangedSince >= static::REMAINING_BOARDS_SETTLED_AFTER_SECONDS
         ) {
             // no shard renders them any more
-            $this->setStatus(
+            $this->closeRequest(
                 $renderRequest,
-                DesignStudioThumbnailRenderRequest::STATUS_DONE,
-                $renderRequest->lastError ?? mb_substr($remainingBoards->count() . ' board(s) could not be rendered', 0, 1000)
+                $renderFailures,
+                static::describeRenderFailures($renderFailures) ?? $renderRequest->lastError ?? ($remainingBoards->count() . ' board(s) could not be rendered')
             );
             return;
         }
@@ -531,54 +728,167 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
     }
 
     /**
-     * Waits for a board's render and stores its thumbnail; false when the renderer is busy / down (the request then
-     * waits and this run ends).
+     * Waits for a board's render and stores its thumbnail. Anything that goes wrong with this one picture (the renderer
+     * refuses it, the render or the store throws — whatever the exception) is a failure of the picture, added to
+     * $runFailures; only a busy / unreachable renderer ends the run.
      * @param DesignStudioThumbnailRenderRequest $renderRequest
      * @param DesignDirectoryBoard $designDirectoryBoard
      * @param ArgusDesignBoardRenderedThumbnails $renderer
      * @param int $shard
      * @param int $shardCount
-     * @return bool
-     * @throws BadRequestException
-     * @throws ImagickException
-     * @throws InternalErrorException
-     * @throws InvalidArgumentException
-     * @throws ORMException
-     * @throws OptimisticLockException
-     * @throws ReflectionException
+     * @param DesignStudioThumbnailRenderFailures $runFailures receives the failure of this picture
+     * @return string RENDER_RESULT_*
      */
     protected function finishRender(
         DesignStudioThumbnailRenderRequest $renderRequest,
         DesignDirectoryBoard $designDirectoryBoard,
         ArgusDesignBoardRenderedThumbnails $renderer,
         int $shard,
-        int $shardCount
-    ): bool {
-        $renderer->finishRender();
+        int $shardCount,
+        DesignStudioThumbnailRenderFailures $runFailures
+    ): string {
+        try {
+            $renderer->finishRender();
+        } catch (Throwable $throwable) {
+            $designStudioThumbnailRenderFailure = DesignStudioThumbnailRenderFailure::fromBoard($designDirectoryBoard, 'rendering failed: ' . $throwable->getMessage());
+            $runFailures->add($designStudioThumbnailRenderFailure);
+            return static::RENDER_RESULT_FAILED;
+        }
         if ($renderer->failureReason !== null) {
             if ($renderer->isRetryableFailure()) {
                 // 429 (renderer queue full), 401 / 404 / 502–504 or transport: back off, nothing lost
                 $this->waitForRenderer($renderRequest, $renderer->failureStatusCode, (string)$renderer->failureReason, $shard, $shardCount);
-                return false;
+                return static::RENDER_RESULT_RENDERER_UNAVAILABLE;
             }
             // this board cannot be rendered (e.g. 400 invalid HTML): the others still can
-            $this->storeLastError($renderRequest, "$designDirectoryBoard->boardKey: HTTP $renderer->failureStatusCode $renderer->failureReason");
-            return true;
+            $designStudioThumbnailRenderFailure = DesignStudioThumbnailRenderFailure::fromBoard($designDirectoryBoard, "HTTP $renderer->failureStatusCode $renderer->failureReason");
+            $runFailures->add($designStudioThumbnailRenderFailure);
+            return static::RENDER_RESULT_FAILED;
         }
         try {
             $this->getDesignStudioThumbnailsService()->storeThumbnail($designDirectoryBoard, $renderer->themeHash, (string)$renderer->png);
-        } catch (InternalErrorException $internalErrorException) {
-            // the object store failed (e.g. not reachable): retried like a busy renderer, the reason in lastError
-            $this->waitForRenderer($renderRequest, null, "$designDirectoryBoard->boardKey: storing the thumbnail failed: " . $internalErrorException->getMessage(), $shard, $shardCount);
-            return false;
+        } catch (Throwable $throwable) {
+            // the object store failed or timed out, the answer is no image, …: this picture only
+            $designStudioThumbnailRenderFailure = DesignStudioThumbnailRenderFailure::fromBoard($designDirectoryBoard, 'storing the thumbnail failed: ' . $throwable->getMessage());
+            $runFailures->add($designStudioThumbnailRenderFailure);
+            return static::RENDER_RESULT_FAILED;
         }
+        $this->countRenderedThumbnail($renderRequest);
         if ($renderRequest->attempts) {
             $renderRequest->attempts = 0;
             $this->writeRequestColumns($renderRequest, 'attempts');
         } else {
             $this->writeRequestColumns($renderRequest);
         }
-        return true;
+        return static::RENDER_RESULT_STORED;
+    }
+
+    /**
+     * Appends failed pictures to the request's failedBoards with one atomic statement (shards never overwrite each
+     * other's failures) and names them in lastError.
+     * @param DesignStudioThumbnailRenderRequest $renderRequest
+     * @param DesignStudioThumbnailRenderFailures $renderFailures
+     * @return void
+     */
+    protected function recordRenderFailures(DesignStudioThumbnailRenderRequest $renderRequest, DesignStudioThumbnailRenderFailures $renderFailures): void
+    {
+        $storedLines = '';
+        foreach ($renderFailures->getElements() as $designStudioThumbnailRenderFailure) {
+            $storedLines .= $designStudioThumbnailRenderFailure->toStoredLine();
+        }
+        $this->appendFailedBoardLines($renderRequest, $storedLines);
+        $renderRequest->failedBoards = ($renderRequest->failedBoards ?? '') . $storedLines;
+        $this->storeLastError($renderRequest, (string)static::describeRenderFailures($renderRequest->getFailedBoards()));
+    }
+
+    /**
+     * `failedBoards = CONCAT(COALESCE(failedBoards, ''), :lines)`: one atomic statement.
+     * @param DesignStudioThumbnailRenderRequest $renderRequest
+     * @param string $storedLines
+     * @return void
+     */
+    protected function appendFailedBoardLines(DesignStudioThumbnailRenderRequest $renderRequest, string $storedLines): void
+    {
+        $repoClass = $this->getEntityRepoClassInstance();
+        $alias = $repoClass::getBaseModelAlias();
+        $repoClass::createQueryBuilder()
+            ->update($repoClass::BASE_ORM_MODEL, $alias)
+            ->set("$alias.failedBoards", "CONCAT(COALESCE($alias.failedBoards, ''), :failedBoardLines)")
+            ->where("$alias.id = :renderRequestId")
+            ->setParameter('failedBoardLines', $storedLines)
+            ->setParameter('renderRequestId', $renderRequest->id)
+            ->getQuery()
+            ->execute();
+    }
+
+    /**
+     * Raises the request's renderedThumbnailCount by one with one atomic statement (shards store concurrently).
+     * @param DesignStudioThumbnailRenderRequest $renderRequest
+     * @return void
+     */
+    protected function countRenderedThumbnail(DesignStudioThumbnailRenderRequest $renderRequest): void
+    {
+        $this->incrementRenderedThumbnailCount($renderRequest);
+        $renderRequest->renderedThumbnailCount = ($renderRequest->renderedThumbnailCount ?? 0) + 1;
+    }
+
+    /**
+     * `renderedThumbnailCount = COALESCE(renderedThumbnailCount, 0) + 1`: one atomic statement.
+     * @param DesignStudioThumbnailRenderRequest $renderRequest
+     * @return void
+     */
+    protected function incrementRenderedThumbnailCount(DesignStudioThumbnailRenderRequest $renderRequest): void
+    {
+        $repoClass = $this->getEntityRepoClassInstance();
+        $alias = $repoClass::getBaseModelAlias();
+        $repoClass::createQueryBuilder()
+            ->update($repoClass::BASE_ORM_MODEL, $alias)
+            ->set("$alias.renderedThumbnailCount", "COALESCE($alias.renderedThumbnailCount, 0) + 1")
+            ->where("$alias.id = :renderRequestId")
+            ->setParameter('renderRequestId', $renderRequest->id)
+            ->getQuery()
+            ->execute();
+    }
+
+    /**
+     * @param DesignStudioThumbnailRenderRequest $renderRequest
+     * @return DesignStudioThumbnailRenderFailures the failures all shards recorded so far (read from the database)
+     */
+    protected function findRenderFailures(DesignStudioThumbnailRenderRequest $renderRequest): DesignStudioThumbnailRenderFailures
+    {
+        $failedBoards = $this->findRequestColumnValue($renderRequest, 'failedBoards');
+        $renderRequest->failedBoards = $failedBoards !== null ? (string)$failedBoards : null;
+        return $renderRequest->getFailedBoards();
+    }
+
+    /**
+     * @param DesignStudioThumbnailRenderRequest $renderRequest
+     * @return int pictures all shards of the request stored so far (read from the database)
+     */
+    protected function findRenderedThumbnailCount(DesignStudioThumbnailRenderRequest $renderRequest): int
+    {
+        $renderedThumbnailCount = (int)($this->findRequestColumnValue($renderRequest, 'renderedThumbnailCount') ?? 0);
+        $renderRequest->renderedThumbnailCount = $renderedThumbnailCount;
+        return $renderedThumbnailCount;
+    }
+
+    /**
+     * A column of the request as stored now: a scalar read, past the identity map (other shards write the row).
+     * @param DesignStudioThumbnailRenderRequest $renderRequest
+     * @param string $columnName
+     * @return mixed
+     */
+    protected function findRequestColumnValue(DesignStudioThumbnailRenderRequest $renderRequest, string $columnName): mixed
+    {
+        $repoClass = $this->getEntityRepoClassInstance();
+        $alias = $repoClass::getBaseModelAlias();
+        $queryBuilder = $repoClass::createQueryBuilder(true);
+        $queryBuilder->select("$alias.$columnName")
+            ->where("$alias.id = :renderRequestId")
+            ->setParameter('renderRequestId', $renderRequest->id)
+            ->setMaxResults(1);
+        $rows = $queryBuilder->getQuery()->getScalarResult();
+        return $rows !== [] ? reset($rows[0]) : null;
     }
 
     /**

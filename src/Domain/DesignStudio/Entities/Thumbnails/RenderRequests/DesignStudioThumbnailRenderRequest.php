@@ -41,7 +41,7 @@ class DesignStudioThumbnailRenderRequest extends Entity
     /** @var string Nothing is missing any more */
     public const string STATUS_DONE = 'DONE';
 
-    /** @var string Given up after too many waiting runs */
+    /** @var string Given up: too many waiting runs, or the request ended with an error and without any rendered picture */
     public const string STATUS_FAILED = 'FAILED';
 
     /** @var string[] Statuses of a request that still has work to do */
@@ -89,6 +89,19 @@ class DesignStudioThumbnailRenderRequest extends Entity
     #[DatabaseIndex(indexType: DatabaseIndex::TYPE_NONE)]
     public ?string $lastError;
 
+    /** @var int|null Pictures this request rendered and stored (raised by one atomic statement per picture) */
+    #[DatabaseIndex(indexType: DatabaseIndex::TYPE_NONE)]
+    public ?int $renderedThumbnailCount;
+
+    /**
+     * @var string|null The pictures this request could not produce, one line each (render target key, board version
+     *                  and error, tab separated; DesignStudioThumbnailRenderFailure::toStoredLine()). Appended by one
+     *                  atomic statement per run, so shards never overwrite each other; read with getFailedBoards()
+     */
+    #[DatabaseColumn(sqlType: DatabaseColumn::SQL_TYPE_TEXT)]
+    #[DatabaseIndex(indexType: DatabaseIndex::TYPE_NONE)]
+    public ?string $failedBoards;
+
     /** @var int|null Id of the account that looked at the canvas; no relation, the account may be gone */
     #[DatabaseIndex(indexType: DatabaseIndex::TYPE_NONE)]
     public ?int $requestedByAccountId;
@@ -108,6 +121,14 @@ class DesignStudioThumbnailRenderRequest extends Entity
     {
         $priorityBoardKeys = trim((string)($this->priorityBoardKeys ?? ''));
         return $priorityBoardKeys === '' ? [] : explode("\n", $priorityBoardKeys);
+    }
+
+    /**
+     * @return DesignStudioThumbnailRenderFailures the pictures this request could not produce (newest failure per picture)
+     */
+    public function getFailedBoards(): DesignStudioThumbnailRenderFailures
+    {
+        return DesignStudioThumbnailRenderFailures::fromStoredLines($this->failedBoards ?? null);
     }
 
     public function uniqueKey(): string

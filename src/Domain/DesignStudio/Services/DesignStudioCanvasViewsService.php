@@ -10,6 +10,7 @@ use DDD\Domain\DesignStudio\Entities\Directory\DesignDirectoryCanvas;
 use DDD\Domain\DesignStudio\Entities\Devices\DesignDevices;
 use DDD\Domain\DesignStudio\Entities\Thumbnails\DesignStudioThumbnail;
 use DDD\Domain\DesignStudio\Entities\Thumbnails\DesignStudioThumbnails;
+use DDD\Domain\DesignStudio\Entities\Thumbnails\RenderRequests\DesignStudioThumbnailRenderFailures;
 use DDD\Domain\DesignStudio\Entities\Views\DesignStudioBoardFrameView;
 use DDD\Domain\DesignStudio\Entities\Views\DesignStudioBoardFrameViews;
 use DDD\Domain\DesignStudio\Entities\Views\DesignStudioBoardView;
@@ -182,6 +183,7 @@ class DesignStudioCanvasViewsService extends Service
                     $contentBasePath . '/thumbnails/',
                     $tokenQuery
                 );
+                $designStudioCanvasView->thumbnailPictureCount += $isRendererEnabled ? $designStudioBoardView->frames->count() : 0;
                 $designStudioCanvasView->missingThumbnailCount += $isRendererEnabled
                     ? count(array_filter(
                         $designStudioBoardView->frames->getElements(),
@@ -207,6 +209,9 @@ class DesignStudioCanvasViewsService extends Service
                 );
                 // a responsive board has its pictures per frame (addFrameViews())
                 $designStudioThumbnail = $designDirectoryBoard->isResponsive ? null : $designStudioThumbnails?->getByThumbnailKey($thumbnailKey);
+                if ($isRendererEnabled && !$designDirectoryBoard->isResponsive) {
+                    $designStudioCanvasView->thumbnailPictureCount++;
+                }
                 if ($designStudioThumbnail) {
                     $thumbnailUrl = $contentBasePath . '/thumbnails/' . $thumbnailKey . '?' . $tokenQuery;
                     $designStudioBoardView->thumbnailUrl = $thumbnailUrl;
@@ -229,9 +234,43 @@ class DesignStudioCanvasViewsService extends Service
             }
             $designStudioCanvasView->renderRequestStatus = $latestRenderRequest->status ?? null;
             $designStudioCanvasView->renderRequestError = $latestRenderRequest->lastError ?? null;
+            $designStudioCanvasView->renderRequestFailedBoards = $latestRenderRequest
+                ? $this->findFailuresOfMissingPictures($latestRenderRequest->getFailedBoards(), $designDirectoryCanvas, $themeHash)
+                : new DesignStudioThumbnailRenderFailures();
+            // a provider that answers another style on every call: no request can ever match a look
+            $designStudioCanvasView->isThemeStyleUnstable = !$designThemeProviderService->isThemeStyleStable($themeReference, $themeStyle);
+            if ($designStudioCanvasView->isThemeStyleUnstable) {
+                $designStudioCanvasView->renderRequestError = DesignThemeProviderService::THEME_STYLE_UNSTABLE_ERROR;
+            }
         }
         $designStudioCanvasView->revision = $this->computeRevision($canvasDefinition, $designDirectoryCanvas);
         return $designStudioCanvasView;
+    }
+
+    /**
+     * @param DesignStudioThumbnailRenderFailures $renderFailures failures recorded on a render request
+     * @param DesignDirectoryCanvas $designDirectoryCanvas
+     * @param string $themeHash
+     * @return DesignStudioThumbnailRenderFailures the failures of pictures that are still missing in the failed version
+     *         (a picture rendered later, or a board changed since, no longer counts as failed)
+     */
+    protected function findFailuresOfMissingPictures(
+        DesignStudioThumbnailRenderFailures $renderFailures,
+        DesignDirectoryCanvas $designDirectoryCanvas,
+        string $themeHash
+    ): DesignStudioThumbnailRenderFailures {
+        $failuresOfMissingPictures = new DesignStudioThumbnailRenderFailures();
+        if (!$renderFailures->count()) {
+            return $failuresOfMissingPictures;
+        }
+        $boardsWithoutThumbnail = $this->getDesignStudioThumbnailsService()->findBoardsWithoutThumbnail($designDirectoryCanvas->boards, $themeHash);
+        foreach ($boardsWithoutThumbnail->getElements() as $designDirectoryBoard) {
+            $designStudioThumbnailRenderFailure = $renderFailures->findForBoard($designDirectoryBoard);
+            if ($designStudioThumbnailRenderFailure) {
+                $failuresOfMissingPictures->add($designStudioThumbnailRenderFailure);
+            }
+        }
+        return $failuresOfMissingPictures;
     }
 
     /**

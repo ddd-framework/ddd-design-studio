@@ -19,6 +19,12 @@ use DDD\Infrastructure\Services\Service;
  */
 class DesignThemeProviderService extends Service
 {
+    /** @var string lastError of a render request whose theme answers a different style on every call */
+    public const string THEME_STYLE_UNSTABLE_ERROR = 'the theme returns different styles on each call';
+
+    /** @var string lastError of a render request whose theme changed between filing and rendering */
+    public const string THEME_CHANGED_ERROR = 'the theme changed since the request was filed';
+
     /**
      * @param string|null $searchText narrows the list for a switcher with many themes
      * @return DesignThemes the themes offered to the theme switcher
@@ -58,6 +64,21 @@ class DesignThemeProviderService extends Service
         }
         $designThemeReference = DesignThemeReference::fromString($themeReference);
         return $this->getThemeStyle((string)$designThemeReference->themeId, $designThemeReference->mode);
+    }
+
+    /**
+     * Asks for the theme's style a second time: a provider must answer the same `<style>` element for the same
+     * reference, or every call names another look (thumbnail keys, render requests) and no thumbnail ever matches.
+     * @param string|null $themeReference `<themeId>` or `<themeId>:<mode>`
+     * @param string|null $firstThemeStyle a style already fetched for the reference; omitted = fetched here
+     * @return bool true when two calls answered the same style
+     */
+    public function isThemeStyleStable(?string $themeReference, ?string $firstThemeStyle = null): bool
+    {
+        if (func_num_args() < 2) {
+            $firstThemeStyle = $this->getThemeStyleForReference($themeReference);
+        }
+        return $this->getThemeStyleForReference($themeReference) === $firstThemeStyle;
     }
 
     /**

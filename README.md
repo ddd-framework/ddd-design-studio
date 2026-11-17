@@ -210,6 +210,32 @@ OBJECT_STORAGE_DESIGN_STUDIO_SECRET_KEY=...
 Without a configured store nothing is kept: a comment is stored without a snapshot (the commented version cannot be
 shown once the board changed), and thumbnails cannot be stored.
 
+**Thumbnails with a short timeout (recommended with a renderer).** A hanging upload holds the render run until the
+store client gives up — with the client's defaults several minutes per picture. Give the thumbnails a store name of
+their own on the same bucket, with a short timeout and a few retries (framework object storage, `mgamadeus/ddd`
+3.35.2 or later), and name it in `DesignStudio.storage.thumbnailStore`:
+
+```php
+// config/app/Common/ObjectStorage.php
+return [
+    'stores' => [
+        'design-studio' => ['driver' => 's3', 'endpoint' => 'https://objects.example.com', 'bucket' => 'design-studio'],
+        'design-studio-thumbnails' => [
+            'driver' => 's3', 'endpoint' => 'https://objects.example.com', 'bucket' => 'design-studio',
+            'timeoutSeconds' => 5, 'maxRetries' => 3,
+        ],
+    ],
+];
+
+// config/app/DesignStudio/storage.php (replaces the module file as a whole)
+return ['store' => 'design-studio', 'thumbnailStore' => 'design-studio-thumbnails', 'prefix' => 'design-studio'];
+```
+
+The credentials of the second store come from `OBJECT_STORAGE_DESIGN_STUDIO_THUMBNAILS_ACCESS_KEY` / `_SECRET_KEY`;
+the same values as `OBJECT_STORAGE_DESIGN_STUDIO_*` work. Where uploads stall at the HTTP level, a store's
+`httpVersion` (`'1.1'`) can be tried once the framework offers it. Keep the same bucket: thumbnails stored before are
+looked up under the thumbnail store.
+
 ### 8. Optional: thumbnails (renderer, Messenger, worker)
 
 Without a renderer the studio delivers no thumbnails and files no render requests; no worker is needed. To switch
@@ -352,12 +378,16 @@ column of 32 characters.
 | Key | Meaning | Default |
 |---|---|---|
 | `store` | name of the object store | `design-studio` |
+| `thumbnailStore` | name of the object store for thumbnails (full picture, small and preview copy); `null` = `store` | `null` |
 | `prefix` | key prefix inside the store | `design-studio` |
 
 Object keys: `<prefix>/snapshots/<contentHash>.html`, `<prefix>/thumbnails/<thumbnailKey>.png` and
 `<prefix>/thumbnails/<thumbnailKey>-w120.png`, and a preview for middle zoom levels, at most 640 px wide, as
 `<prefix>/thumbnails/<thumbnailKey>-w640.webp` (`.jpg` where Imagick has no WebP). The canvas loads the full PNG only
 when a board is drawn wider than 800 px; a thumbnail stored before previews existed gets its preview on first request.
+A thumbnail exists once its full picture is stored (the row is written then); the small and the preview copy are
+stored afterwards, each on its own, and one that could not be stored is made on its first request. A full picture
+that is already in the store is not uploaded again.
 
 ### `renderer.php` — `DesignStudio.renderer`
 
@@ -577,7 +607,7 @@ account must pass the access policy. Boards are the files of the checkout the co
 | `app:design-studio:decisions` | `project canvas` | — | the decisions log (decision threads with their replies) as Markdown |
 | `app:design-studio:status` | `project canvas board status` | `--as=<name>` (default `Agent`) | sets the review status of a board |
 | `app:design-studio:theme` | `[theme]` | `--search=<text>` | without argument: lists the themes; with a theme reference: prints its `<style>` element |
-| `app:design-studio:thumbnails` | `project canvas` | `--theme=<reference>`, `--render` | reports how many pictures (fixed boards and device frames of responsive boards) have a thumbnail in the look and the newest render request; `--render` files a request for the missing ones |
+| `app:design-studio:thumbnails` | `project canvas` | `--theme=<reference>`, `--render` | reports how many pictures (fixed boards and device frames of responsive boards) have a thumbnail in the look and the newest render request with its failed pictures; warns when the theme provider answers a different style on each call; `--render` files a request for the missing ones |
 | `app:design-studio:export` | `project canvas board` | `--format=svg`, `--theme=<reference>`, `--out=<file>`, `--region=x,y,width,height`, `--device=<key>`, `--raster-out=<file.webp\|.png>`, `--comparison-out=<file.png>` | exports a board (file name or code) as SVG through the renderer (renderer 1.2.0) and prints the SVG's size (and gzip size) next to the raster picture's as WebP and PNG and the share of pixels that differ from the raster picture. See "Exporting a board as SVG" |
 | `app:design-studio:prune` | — | `--dryRun` | deletes expired threads (or reports them) and lists the ones expiring soon |
 
@@ -638,8 +668,25 @@ invalidated. Thumbnail rows can be deleted at any time and are rendered again on
 boards. A run renders the boards of its shard (priority boards first) for at most 90 seconds, then continues in a new
 message. Renderer answers 401, 404, 429, 502 to 504 and transport failures make the request wait
 (`WAITING_FOR_RENDERER`) and retry with exponential backoff (30 seconds doubling up to 4 minutes, 30 attempts, then
-`FAILED`); a failing object store when a thumbnail is stored is retried the same way, its reason in `lastError`.
-Another failure concerns one board: it is recorded in `lastError` and the other boards are still rendered.
+`FAILED`).
+
+**One picture never blocks the others.** Anything else that goes wrong with one picture — the renderer refuses it
+(400), its render throws, storing its thumbnail fails or times out, the answer is no image — skips that picture: the
+run renders the rest, tries the failed pictures once more at its end, and records those that failed again on the
+request (`failedBoards`: one line per picture with its error; `lastError`: `k picture(s) failed: <board>: <error>; …`).
+The request does not try a recorded picture again; a new version of the board, or a new request (the canvas' retry
+button, `--render`), does. A request that ends with an error and rendered no picture is `FAILED`; one that rendered
+pictures is `DONE`, its failed pictures listed. The canvas view carries `thumbnailPictureCount`,
+`renderRequestFailedBoards` (failed pictures that are still missing, with their errors) and `isThemeStyleUnstable`; the
+canvas shows "n of m, k failed" with the reason per picture and files no new request on its own after a failed or
+incomplete one.
+
+**Theme provider that answers another style on each call** (an embedded picture with its encode time, a random id):
+every call names another look, so no thumbnail ever matches. The canvas view (`isThemeStyleUnstable`,
+`renderRequestError` "the theme returns different styles on each call"), the canvas and `app:design-studio:thumbnails`
+(a warning) name it; no request is filed. A worker that sees it on a filed request ends the request `FAILED` with that
+reason; a theme whose style really changed since the request was filed ends it with "the theme changed since the
+request was filed".
 A board whose file or asset files change between the listing and its render (boards regenerated during a run) is read
 again in a follow-up run of its shard 10 seconds later. A shard that is through looks at the other shards' boards every
 minute; the request closes when nothing is missing, or when the missing boards stayed the same for 3 minutes while no

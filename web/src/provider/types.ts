@@ -316,6 +316,16 @@ export interface DesignStudioTexts {
   thumbnailsMissing: (count: number) => string;
   /** Appended to the tooltip of the thumbnail pill when the last render request reported an error. */
   thumbnailsLastError: (error: string) => string;
+  /** Thumbnail pill: pictures with a thumbnail of all pictures, and how many the last request could not produce. */
+  thumbnailsProgress: (renderedCount: number, pictureCount: number, failedCount: number) => string;
+  /** Thumbnail pill: thumbnails are missing and no request is open; a click files one. */
+  thumbnailsPending: string;
+  /** Thumbnail pill: some pictures could not be produced; a click files a new request. */
+  thumbnailsPartlyFailed: string;
+  /** Thumbnail pill: the theme provider answers a different style on each call, so nothing can be rendered. */
+  thumbnailsThemeUnstable: string;
+  /** Tooltip line of one failed picture (`renderTargetKey` = board key, `<boardKey>@<deviceKey>` for a frame). */
+  thumbnailFailedBoard: (renderTargetKey: string, error: string) => string;
   /** Tooltip of the disabled dark-mode button of a theme without a dark variant. */
   themeWithoutDarkMode: string;
   /** Shown on a board card that has no thumbnail yet. */

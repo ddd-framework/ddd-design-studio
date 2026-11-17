@@ -58,6 +58,7 @@ import {
 import { boardNodeId, CanvasViewContext, type CanvasViewState, sectionNodeId } from './canvasView';
 import { buildThemeReference, splitThemeReference, type ThemeMode } from './designTheme';
 import { type CanvasFitRequest, type CanvasTool, DesignCanvasFlow } from './DesignCanvasFlow';
+import { describeThumbnailRenderState, OPEN_RENDER_STATUSES, shouldFileRenderRequestAutomatically } from './thumbnailRenderState';
 
 /** URL parameters of the canvas state (search, section, status, theme, theme mode, viewport `x,y,zoom`). */
 const CANVAS_STATE_KEYS = ['q', 'section', 'status', 'theme', 'mode', 'vp'] as const;
@@ -69,9 +70,6 @@ const LIVE_UPDATE_POLL_MS = 15_000;
 
 /** Poll interval of the canvas while a thumbnail render request runs (images swap in as they arrive). */
 const THUMBNAIL_RENDER_POLL_MS = 3_000;
-
-/** Render request statuses that are still being worked on. */
-const OPEN_RENDER_STATUSES: ReadonlySet<string> = new Set(['QUEUED', 'RUNNING', 'WAITING_FOR_RENDERER']);
 
 /** At most this many boards on screen are named as priority of a render request. */
 const MAX_PRIORITY_BOARDS = 200;
@@ -510,6 +508,7 @@ export const DesignStudioCanvasScreen = ({ projectKey, canvasKey }: DesignStudio
   const isRendererEnabled = Boolean(canvas?.isRendererEnabled);
   const missingThumbnailCount = canvas?.missingThumbnailCount ?? 0;
   const renderStatus = canvas?.renderRequestStatus ?? null;
+  const thumbnailRenderState = useMemo(() => describeThumbnailRenderState(canvas), [canvas]);
   const isRenderOpen = renderStatus !== null && OPEN_RENDER_STATUSES.has(renderStatus);
   useEffect(() => setIsRenderPolling(isRenderOpen), [isRenderOpen]);
   const [requestThumbnailRendering] = api.useRequestThumbnailRenderingMutation();
@@ -552,9 +551,9 @@ export const DesignStudioCanvasScreen = ({ projectKey, canvasKey }: DesignStudio
   );
   useEffect(() => {
     // only for the look that is loaded (never from the previous theme's numbers while another one loads)
-    if (!currentCanvas?.isRendererEnabled || !currentCanvas.missingThumbnailCount) return;
-    const currentStatus = currentCanvas.renderRequestStatus ?? null;
-    if (currentStatus === 'FAILED' || (currentStatus !== null && OPEN_RENDER_STATUSES.has(currentStatus))) return;
+    // never while a request is open, after a failed or incomplete one (the pill names the reason and offers the
+    // retry) or for a theme that answers another style on each call
+    if (!shouldFileRenderRequestAutomatically(currentCanvas)) return;
     fileRenderRequest(false);
   }, [currentCanvas, fileRenderRequest]);
   const themeOptions = useMemo(
@@ -1151,31 +1150,62 @@ export const DesignStudioCanvasScreen = ({ projectKey, canvasKey }: DesignStudio
           className="w-44"
         />
       )}
-      {isRendererEnabled && missingThumbnailCount > 0 && renderStatus !== null && renderStatus !== 'DONE' ? (
+      {thumbnailRenderState && (thumbnailRenderState.kind !== 'pending' || writesAllowed) ? (
         <Tooltip>
           <TooltipTrigger asChild>
             <button
               type="button"
-              disabled={renderStatus !== 'FAILED' || !writesAllowed}
-              className="flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-tint px-3 text-xs font-semibold text-muted-foreground transition-colors enabled:hover:bg-tint-strong enabled:hover:text-foreground"
+              disabled={!thumbnailRenderState.canRetry || !writesAllowed}
+              data-thumbnail-render-state={thumbnailRenderState.kind}
+              className={cx(
+                'flex h-8 min-w-0 max-w-[28rem] shrink items-center gap-1.5 rounded-full bg-tint px-3 text-xs font-semibold text-muted-foreground transition-colors enabled:hover:bg-tint-strong enabled:hover:text-foreground',
+                (thumbnailRenderState.kind === 'failed' || thumbnailRenderState.kind === 'themeUnstable') && 'text-destructive'
+              )}
               onClick={() => fileRenderRequest(true)}
             >
-              {renderStatus === 'FAILED' ? (
-                <ImageDown className="size-4" aria-hidden />
+              {thumbnailRenderState.isBusy ? (
+                <LoaderCircle className="size-4 shrink-0 animate-spin motion-reduce:animate-none" aria-hidden />
               ) : (
-                <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden />
+                <ImageDown className="size-4 shrink-0" aria-hidden />
               )}
-              {renderStatus === 'FAILED'
-                ? texts.thumbnailsFailed
-                : renderStatus === 'WAITING_FOR_RENDERER'
-                  ? texts.thumbnailsWaitingForRenderer(shownThemeLabel)
-                  : texts.thumbnailsRendering(shownThemeLabel)}{' '}
-              · {Math.max(0, shownBoardList.length - missingThumbnailCount)}/{shownBoardList.length}
+              <span className="shrink-0">
+                {thumbnailRenderState.kind === 'themeUnstable'
+                  ? texts.thumbnailsThemeUnstable
+                  : thumbnailRenderState.kind === 'failed'
+                    ? texts.thumbnailsFailed
+                    : thumbnailRenderState.kind === 'partlyFailed'
+                      ? texts.thumbnailsPartlyFailed
+                      : thumbnailRenderState.kind === 'pending'
+                        ? texts.thumbnailsPending
+                        : thumbnailRenderState.kind === 'waiting'
+                          ? texts.thumbnailsWaitingForRenderer(shownThemeLabel)
+                          : texts.thumbnailsRendering(shownThemeLabel)}
+              </span>
+              {thumbnailRenderState.kind !== 'themeUnstable' ? (
+                <span className="shrink-0">
+                  ·{' '}
+                  {texts.thumbnailsProgress(
+                    thumbnailRenderState.renderedCount,
+                    thumbnailRenderState.pictureCount,
+                    thumbnailRenderState.failedCount
+                  )}
+                </span>
+              ) : null}
+              {thumbnailRenderState.kind === 'failed' && thumbnailRenderState.reason ? (
+                <span className="min-w-0 truncate font-normal">· {thumbnailRenderState.reason}</span>
+              ) : null}
             </button>
           </TooltipTrigger>
           <TooltipContent side="bottom" className="max-w-sm">
-            {texts.thumbnailsMissing(missingThumbnailCount)}
-            {canvas?.renderRequestError ? ` ${texts.thumbnailsLastError(canvas.renderRequestError)}` : ''}
+            {missingThumbnailCount > 0 ? texts.thumbnailsMissing(missingThumbnailCount) : null}
+            {thumbnailRenderState.reason ? ` ${texts.thumbnailsLastError(thumbnailRenderState.reason)}` : ''}
+            {thumbnailRenderState.failedBoards.length > 0 ? (
+              <ul className="mt-1 list-none">
+                {thumbnailRenderState.failedBoards.map(failedBoard => (
+                  <li key={failedBoard.renderTargetKey}>{texts.thumbnailFailedBoard(failedBoard.renderTargetKey, failedBoard.error)}</li>
+                ))}
+              </ul>
+            ) : null}
           </TooltipContent>
         </Tooltip>
       ) : null}

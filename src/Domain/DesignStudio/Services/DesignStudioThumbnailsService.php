@@ -20,6 +20,7 @@ use Doctrine\ORM\OptimisticLockException;
 use ImagickException;
 use Psr\Cache\InvalidArgumentException;
 use ReflectionException;
+use Throwable;
 
 /**
  * Rendered pictures of boards. Only used when the renderer is switched on (config `DesignStudio.renderer.enabled`);
@@ -267,12 +268,68 @@ class DesignStudioThumbnailsService extends EntitiesService
         $designStudioThumbnail->themeHash = $themeHash;
         $designStudioThumbnail->rendererVersion = $this->getRendererVersion();
         $designStudioThumbnail->objectKey = $objectKey;
-        $designStudioThumbnail->smallObjectKey = $designStudioFilesService->storeSmallThumbnail($thumbnailKey, $png);
-        $designStudioFilesService->storePreviewThumbnail($thumbnailKey, $png);
+        $designStudioThumbnail->smallObjectKey = null;
         $designStudioThumbnail->width = $imageSize[0];
         $designStudioThumbnail->height = $imageSize[1];
         $designStudioThumbnail->byteSize = strlen($png);
-        return $this->update($designStudioThumbnail);
+        // the full picture is stored: the thumbnail exists from here on, whatever happens to the smaller copies
+        $designStudioThumbnail = $this->update($designStudioThumbnail);
+        $this->storeSmallerCopies($designStudioThumbnail, $png);
+        return $designStudioThumbnail;
+    }
+
+    /**
+     * Stores the small and the preview copy of a stored thumbnail, each on its own. A copy that fails is made on its
+     * first read (getThumbnailContent()); until then the full picture is delivered in its place.
+     * @param DesignStudioThumbnail $designStudioThumbnail
+     * @param string $png PNG bytes of the full picture
+     * @return void
+     */
+    protected function storeSmallerCopies(DesignStudioThumbnail $designStudioThumbnail, string $png): void
+    {
+        /** @var DesignStudioFilesService $designStudioFilesService */
+        $designStudioFilesService = DDDService::instance()->getService(DesignStudioFilesService::class);
+        $thumbnailKey = (string)$designStudioThumbnail->thumbnailKey;
+        try {
+            $smallObjectKey = $designStudioFilesService->storeSmallThumbnail($thumbnailKey, $png);
+            if ($smallObjectKey !== null) {
+                $designStudioThumbnail->smallObjectKey = $smallObjectKey;
+                $this->writeSmallObjectKey($designStudioThumbnail);
+            }
+        } catch (Throwable $throwable) {
+            $this->logSmallerCopyFailure($thumbnailKey, DesignStudioThumbnail::SIZE_SMALL, $throwable);
+        }
+        try {
+            $designStudioFilesService->storePreviewThumbnail($thumbnailKey, $png);
+        } catch (Throwable $throwable) {
+            $this->logSmallerCopyFailure($thumbnailKey, DesignStudioThumbnail::SIZE_PREVIEW, $throwable);
+        }
+    }
+
+    /**
+     * Writes only the small copy's object key of a stored thumbnail.
+     * @param DesignStudioThumbnail $designStudioThumbnail
+     * @return void
+     */
+    protected function writeSmallObjectKey(DesignStudioThumbnail $designStudioThumbnail): void
+    {
+        $designStudioThumbnail->updatePartialIgnoringRights('smallObjectKey');
+    }
+
+    /**
+     * @param string $thumbnailKey
+     * @param string $size DesignStudioThumbnail::SIZE_*
+     * @param Throwable $throwable
+     * @return void
+     */
+    protected function logSmallerCopyFailure(string $thumbnailKey, string $size, Throwable $throwable): void
+    {
+        DDDService::instance()->getLogger()->warning(sprintf(
+            'Design studio thumbnail %s: the %s copy was not stored (made on its first read): %s',
+            $thumbnailKey,
+            $size,
+            $throwable->getMessage()
+        ));
     }
 
     /**
@@ -304,14 +361,30 @@ class DesignStudioThumbnailsService extends EntitiesService
             }
             try {
                 return $designStudioFilesService->storePreviewThumbnail($thumbnailKey, $png) ?? $png;
-            } catch (ImagickException) {
-                // an image the library cannot read: the full picture still shows
+            } catch (Throwable) {
+                // an image the library cannot read, a store that fails: the full picture still shows
                 return $png;
             }
         }
-        $objectKey = $size === DesignStudioThumbnail::SIZE_SMALL
-            ? ($designStudioThumbnail->smallObjectKey ?? $designStudioThumbnail->objectKey)
-            : $designStudioThumbnail->objectKey;
+        if ($size === DesignStudioThumbnail::SIZE_SMALL && ($designStudioThumbnail->smallObjectKey ?? null) === null) {
+            // the small copy was not stored with the thumbnail: made now (and kept), else the full picture shows
+            $png = $designStudioFilesService->readThumbnail((string)$designStudioThumbnail->objectKey);
+            if ($png === null) {
+                return null;
+            }
+            try {
+                $smallObjectKey = $designStudioFilesService->storeSmallThumbnail($thumbnailKey, $png);
+                if ($smallObjectKey !== null) {
+                    $designStudioThumbnail->smallObjectKey = $smallObjectKey;
+                    $this->writeSmallObjectKey($designStudioThumbnail);
+                    return $designStudioFilesService->readThumbnail($smallObjectKey) ?? $png;
+                }
+            } catch (Throwable) {
+                // the full picture still shows
+            }
+            return $png;
+        }
+        $objectKey = $size === DesignStudioThumbnail::SIZE_SMALL ? $designStudioThumbnail->smallObjectKey : $designStudioThumbnail->objectKey;
         return $designStudioFilesService->readThumbnail((string)$objectKey);
     }
 }

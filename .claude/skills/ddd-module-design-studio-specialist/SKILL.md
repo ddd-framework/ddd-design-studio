@@ -3,7 +3,7 @@ name: ddd-module-design-studio-specialist
 description: "Installs, wires and operates ddd-design-studio, a review studio for a checkout's HTML design boards. Covers canvas.json, boards and versions, assets-folder images, board scripts, responsive boards in device frames, the site view, the DesignStudio config files, thin controllers on the three traits, the token-guarded content route, object storage, the optional renderer (thumbnails, SVG export) and worker, access policy and theme provider, board codes (APP ONB-W2), and app:design-studio:show, comments, comments-poll, decisions, status, theme, thumbnails, export, prune. Use when installing the studio, adding a canvas, putting photos into boards, running board JavaScript, marking a board responsive, opening a canvas as a website, linking to a board, answering design comments as an agent, setting a board status, requesting thumbnails, exporting a board as SVG, or debugging an empty canvas, a missing board or image, No handler for message, missing thumbnails or a 404 on board content."
 metadata:
   author: mgamadeus
-  version: "0.7.2"
+  version: "0.8.0"
   module: mgamadeus/ddd-design-studio
 ---
 
@@ -334,7 +334,14 @@ Off by default (`DesignStudio.renderer.enabled` = `false`): the canvas view then
    ```
 
 Request statuses: `QUEUED`, `RUNNING`, `WAITING_FOR_RENDERER` (renderer answered 401, 404, 429, 502 to 504 or was
-unreachable; retried with backoff), `DONE`, `FAILED`. A request stays open only while a shard has a queued or running
+unreachable; retried with backoff), `DONE` (rendered at least one picture), `FAILED` (ended with an error and rendered
+none, or gave up waiting). One picture that fails (renderer 400, a render or store that throws or times out, no image)
+never blocks the others: the run skips it, renders the rest, retries it once at its end and records it in
+`failedBoards` with its error; the request does not try it again (a new request or board version does). The canvas
+shows "n of m, k failed" with the reason per picture. A theme provider that answers another style on each call is
+named by the canvas, the console (warning) and the request (`FAILED`, "the theme returns different styles on each
+call"); fix the provider. Thumbnail store with a short timeout: `DesignStudio.storage.thumbnailStore` naming a store on
+the same bucket with `timeoutSeconds: 5`, `maxRetries: 3` (`mgamadeus/ddd` 3.35.2). A request stays open only while a shard has a queued or running
 message: a board that changed during the run is read again 10 seconds later, a shard that is through watches the others
 every minute and closes the request when nothing renderable is missing (missing boards unchanged for 3 minutes, no shard
 waiting for the renderer). Every run, stored thumbnail and retry writes the request; opening a canvas replaces a request without a write for 5 minutes (a failing object store is retried with backoff, reason in `lastError`). A thumbnail key is derived from content hash, theme hash and
@@ -424,7 +431,9 @@ class AppDesignAccessPolicyService extends DesignAccessPolicyService
 | `No handler for message "…RenderDesignStudioThumbnailsMessage"` | The handler tag is missing in `services.yaml`, or the worker runs a container built before it was added. Add the tag, rebuild the container, restart the workers |
 | Render request stays `QUEUED` | No consumer on `render_design_studio_thumbnails`, transport or routing missing, or the message's account fails `canView()` in the worker. After 5 minutes without a write the next request replaces it |
 | Render request `WAITING_FOR_RENDERER` | See `lastError` (`app:design-studio:thumbnails …`): endpoint not reachable (404), token missing or wrong (401), renderer busy (429) |
-| Request `DONE` but thumbnails are missing | No object store configured (thumbnails cannot be stored), or single boards failed: see `lastError` |
+| Request `DONE` but thumbnails are missing | No object store configured (thumbnails cannot be stored), or single pictures failed: `app:design-studio:thumbnails` lists them with their errors; the canvas retry button files a new request |
+| Request `FAILED` with "the theme returns different styles on each call", or the canvas never shows thumbnails nor a loading state | The theme provider answers another `<style>` on every call (a timestamp or random part): make `getThemeStyle()` deterministic for a reference |
+| Render runs hang on one board | The thumbnail upload hangs: give the thumbnails a store with `timeoutSeconds: 5`, `maxRetries: 3` (`DesignStudio.storage.thumbnailStore`) |
 | `app:design-studio:export` fails with `unknown job "vector"` / status 404 | The renderer is older than 1.2.0, or the endpoint does not end in `/thumbnails` (the export replaces that segment by `/vector`) |
 | `app:design-studio:thumbnails` prints `No renderer is configured` | `DesignStudio.renderer.enabled` is `false` in the effective config (an application file replaces the module file as a whole) |
 | Console lists nothing / "may not" errors | `CLI_DEFAULT_ACCOUNT_ID_FOR_CLI_OPERATIONS` is unset or its account fails the access policy |

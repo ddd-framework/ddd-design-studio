@@ -43,10 +43,19 @@ class DesignStudioThumbnails extends DesignStudioCommand
         $designThemeProviderService = DDDService::instance()->getService(DesignThemeProviderService::class);
         /** @var DesignDirectoryReaderService $designDirectoryReaderService */
         $designDirectoryReaderService = DDDService::instance()->getService(DesignDirectoryReaderService::class);
-        /** @var DesignStudioThumbnailRenderRequestsService $renderRequestsService */
-        $renderRequestsService = DDDService::instance()->getService(DesignStudioThumbnailRenderRequestsService::class);
+        /** @var DesignStudioThumbnailRenderRequestsService $designStudioThumbnailRenderRequestsService */
+        $designStudioThumbnailRenderRequestsService = DDDService::instance()->getService(DesignStudioThumbnailRenderRequestsService::class);
         $themeReference = $input->getOption('theme') ?? ($canvasDefinition->referenceTheme ?? null);
-        $themeHash = DesignThemeProviderService::computeThemeHash($designThemeProviderService->getThemeStyleForReference($themeReference));
+        $themeStyle = $designThemeProviderService->getThemeStyleForReference($themeReference);
+        $themeHash = DesignThemeProviderService::computeThemeHash($themeStyle);
+        if (!$designThemeProviderService->isThemeStyleStable($themeReference, $themeStyle)) {
+            $output->writeln(sprintf(
+                '<comment>Warning: %s (theme %s): every call names another look, so no thumbnail can match it and no render request is filed. '
+                . 'Make the theme provider answer the same <style> element for the same reference (no timestamps or random parts in it).</comment>',
+                DesignThemeProviderService::THEME_STYLE_UNSTABLE_ERROR,
+                $themeReference ?? '-'
+            ));
+        }
         $designDirectoryBoards = $designDirectoryReaderService->readCanvas($canvasDefinition)->boards;
         $boardsWithoutThumbnail = $designStudioThumbnailsService->findBoardsWithoutThumbnail($designDirectoryBoards, $themeHash);
         // a responsive board has one picture per device frame: count pictures, name boards and frames
@@ -65,12 +74,15 @@ class DesignStudioThumbnails extends DesignStudioCommand
             substr($themeHash, 0, 10)
         ));
         if ($input->getOption('render') && $boardsWithoutThumbnail->count()) {
-            $renderRequestsService->requestRendering($canvasDefinition, $themeReference, [], $this->getCliAccount());
+            $designStudioThumbnailRenderRequestsService->requestRendering($canvasDefinition, $themeReference, [], $this->getCliAccount());
         }
-        $renderRequest = $renderRequestsService->findLatestRequest($canvasDefinition, $themeHash);
+        $renderRequest = $designStudioThumbnailRenderRequestsService->findLatestRequest($canvasDefinition, $themeHash);
         if ($renderRequest) {
             $output->writeln("render request #$renderRequest->id: $renderRequest->status, " . ($renderRequest->attempts ?? 0) . ' attempt(s)'
                 . (($renderRequest->lastError ?? null) ? " — $renderRequest->lastError" : ''));
+            foreach ($renderRequest->getFailedBoards()->getElements() as $designStudioThumbnailRenderFailure) {
+                $output->writeln("  failed: $designStudioThumbnailRenderFailure->renderTargetKey — $designStudioThumbnailRenderFailure->error");
+            }
         }
         return Command::SUCCESS;
     }

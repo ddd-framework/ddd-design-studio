@@ -27,6 +27,9 @@ class DesignStudioFilesService extends Service
     /** @var string Fallback of the config `DesignStudio.storage.store` */
     public const string DEFAULT_STORE_NAME = 'design-studio';
 
+    /** @var string|null Fallback of the config `DesignStudio.storage.thumbnailStore`: null = the store of `store` */
+    public const ?string DEFAULT_THUMBNAIL_STORE_NAME = null;
+
     /** @var string Fallback of the config `DesignStudio.storage.prefix` */
     public const string DEFAULT_KEY_PREFIX = 'design-studio';
 
@@ -182,7 +185,7 @@ class DesignStudioFilesService extends Service
     }
 
     /**
-     * Keeps a rendered thumbnail.
+     * Keeps a rendered thumbnail (uploaded only when the object is not there yet: the key names the content).
      * @param string $thumbnailKey SHA-256 that identifies the thumbnail
      * @param string $png PNG bytes
      * @return string|null the object key, null when no store is configured
@@ -190,12 +193,15 @@ class DesignStudioFilesService extends Service
      */
     public function storeThumbnail(string $thumbnailKey, string $png): ?string
     {
-        $objectStorage = $this->getObjectStorage();
+        $objectStorage = $this->getThumbnailObjectStorage();
         if ($objectStorage === null || !preg_match('/^[0-9a-f]{64}$/', $thumbnailKey)) {
             return null;
         }
         $objectKey = $this->getKeyPrefix() . '/thumbnails/' . $thumbnailKey . '.png';
-        $objectStorage->putObject($objectKey, $png, 'image/png');
+        // a second attempt (the row could not be written after the upload) does not upload the same picture again
+        if (!$objectStorage->objectExists($objectKey)) {
+            $objectStorage->putObject($objectKey, $png, 'image/png');
+        }
         return $objectKey;
     }
 
@@ -209,7 +215,7 @@ class DesignStudioFilesService extends Service
      */
     public function storeSmallThumbnail(string $thumbnailKey, string $png): ?string
     {
-        $objectStorage = $this->getObjectStorage();
+        $objectStorage = $this->getThumbnailObjectStorage();
         if ($objectStorage === null || !preg_match('/^[0-9a-f]{64}$/', $thumbnailKey) || !class_exists(Imagick::class)) {
             return null;
         }
@@ -237,7 +243,7 @@ class DesignStudioFilesService extends Service
      */
     public function storePreviewThumbnail(string $thumbnailKey, string $png): ?string
     {
-        $objectStorage = $this->getObjectStorage();
+        $objectStorage = $this->getThumbnailObjectStorage();
         if ($objectStorage === null || !preg_match('/^[0-9a-f]{64}$/', $thumbnailKey) || !class_exists(Imagick::class)) {
             return null;
         }
@@ -268,7 +274,7 @@ class DesignStudioFilesService extends Service
      */
     public function readPreviewThumbnail(string $thumbnailKey): ?string
     {
-        $objectStorage = $this->getObjectStorage();
+        $objectStorage = $this->getThumbnailObjectStorage();
         if ($objectStorage === null || !preg_match('/^[0-9a-f]{64}$/', $thumbnailKey)) {
             return null;
         }
@@ -301,7 +307,7 @@ class DesignStudioFilesService extends Service
         if (!preg_match('#^' . preg_quote($this->getKeyPrefix(), '#') . '/thumbnails/[0-9a-f]{64}(-w\d+)?\.png$#', $objectKey)) {
             return null;
         }
-        return $this->getObjectStorage()?->getObjectContent($objectKey);
+        return $this->getThumbnailObjectStorage()?->getObjectContent($objectKey);
     }
 
     /**
@@ -357,5 +363,24 @@ class DesignStudioFilesService extends Service
         /** @var ObjectStorageService $objectStorageService */
         $objectStorageService = DDDService::instance()->getService(ObjectStorageService::class);
         return $objectStorageService->getObjectStorage((string)(Config::get('DesignStudio.storage.store') ?? static::DEFAULT_STORE_NAME));
+    }
+
+    /**
+     * The store of the thumbnails (full picture and its copies): the config `DesignStudio.storage.thumbnailStore`, else
+     * the store of everything else. A store name of its own lets the thumbnails use a short timeout with retries
+     * (`timeoutSeconds: 5`, `maxRetries: 3` of the framework's object storage) — a hanging upload is retried quickly and
+     * fails one picture in bounded time — while snapshots keep the defaults. Point it at the same bucket to keep the thumbnails stored before.
+     * @return ObjectStorage|null null when the store is not configured
+     * @throws InternalErrorException
+     */
+    protected function getThumbnailObjectStorage(): ?ObjectStorage
+    {
+        $thumbnailStoreName = Config::get('DesignStudio.storage.thumbnailStore') ?? static::DEFAULT_THUMBNAIL_STORE_NAME;
+        if ($thumbnailStoreName === null || trim((string)$thumbnailStoreName) === '') {
+            return $this->getObjectStorage();
+        }
+        /** @var ObjectStorageService $objectStorageService */
+        $objectStorageService = DDDService::instance()->getService(ObjectStorageService::class);
+        return $objectStorageService->getObjectStorage((string)$thumbnailStoreName);
     }
 }

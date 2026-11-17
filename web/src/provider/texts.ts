@@ -16,6 +16,12 @@ export const DEFAULT_DESIGN_STUDIO_TEXTS: DesignStudioTexts = {
       ? '1 board has no thumbnail in this look yet; it appears as soon as it is rendered.'
       : `${count} boards have no thumbnail in this look yet; they appear as soon as they are rendered.`,
   thumbnailsLastError: error => `Last error: ${error}`,
+  thumbnailsProgress: (renderedCount, pictureCount, failedCount) =>
+    failedCount > 0 ? `${renderedCount} of ${pictureCount}, ${failedCount} failed` : `${renderedCount} of ${pictureCount}`,
+  thumbnailsPending: 'Thumbnails missing · render',
+  thumbnailsPartlyFailed: 'Some thumbnails failed · try again',
+  thumbnailsThemeUnstable: 'No thumbnails: the theme returns different styles on each call',
+  thumbnailFailedBoard: (renderTargetKey, error) => `${renderTargetKey}: ${error}`,
   themeWithoutDarkMode: 'This theme has no dark mode',
   thumbnailMissing: 'No thumbnail yet',
   thumbnailLoading: 'Loading…',

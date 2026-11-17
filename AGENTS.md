@@ -77,7 +77,8 @@ application.
 | `DesignStudioComment` | Entity | `DesignStudioComments` | thread root or reply; pin `x` / `y`, `isResolved`, `isDecision`, `authorKind`, `snapshotObjectKey`, `lastActivityAt` |
 | `DesignStudioBoardStatus` | Entity | `DesignStudioBoardStatuses` | status of one board (unique on project, canvas, board) with the version it was set on |
 | `DesignStudioThumbnail` | Entity | `DesignStudioThumbnails` | PNG of a board version in a look (unique `thumbnailKey`); a cache, deletable at any time |
-| `DesignStudioThumbnailRenderRequest` | Entity | `DesignStudioThumbnailRenderRequests` | order to render the missing thumbnails of a canvas in a look; `STATUS_*`, `attempts`, `lastError` |
+| `DesignStudioThumbnailRenderRequest` | Entity | `DesignStudioThumbnailRenderRequests` | order to render the missing thumbnails of a canvas in a look; `STATUS_*`, `attempts`, `lastError`, `renderedThumbnailCount`, `failedBoards` (`getFailedBoards()`) |
+| `DesignStudioThumbnailRenderFailure(s)` | ValueObject | no (lines of `failedBoards`) | a picture a request could not produce: render target key, board version, error |
 | `DesignBoardRenderedThumbnails` | ValueObject | no (Argus, uncached) | one render call: HTML and theme in, PNG or failure out |
 
 `DesignStudioComment`, `DesignStudioBoardStatus` and `DesignStudioThumbnailRenderRequest` use `ChangeHistoryTrait`;
@@ -117,7 +118,10 @@ All in `DDD\Domain\DesignStudio\Services\` (public via `DesignStudioModule::getP
   thumbnail yet.
 - **Render run:** `processRequest()` is one shard of one request. It re-reads the directory, renders with one call in
   flight (`ArgusDesignBoardRenderedThumbnails::startRender()` / `finishRender()`), hands over to a new message after
-  `RUN_BUDGET_SECONDS`, and never throws for a renderer failure (retryable: wait with backoff; otherwise: `lastError`).
+  `RUN_BUDGET_SECONDS`, and never throws for a renderer failure (retryable: wait with backoff). Any other failure of
+  one picture (refused, render or store throws) is caught per picture: the run goes on, retries it once at its end and
+  appends it to `failedBoards` (atomic `CONCAT`); `renderedThumbnailCount` is raised atomically per stored picture.
+  `closeRequest()` decides `FAILED` (an error and nothing rendered) or `DONE`.
 - **Rights:** `DesignStudioRightsTrait::applyReadRightsQuery()` on all four DB repos denies every row to accounts that
   fail `DesignAccessPolicyService::canView()`. Finer rules are checked in the services (`requireMayComment()`,
   `setStatus()`). Code that must run without an account (prune, token authentication) deactivates rights restrictions

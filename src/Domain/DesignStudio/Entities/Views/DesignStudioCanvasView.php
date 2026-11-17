@@ -7,6 +7,7 @@ namespace DDD\Domain\DesignStudio\Entities\Views;
 use DDD\Domain\DesignStudio\Entities\Directory\DesignDirectorySections;
 use DDD\Domain\Base\Entities\ValueObject;
 use DDD\Domain\DesignStudio\Entities\Devices\DesignDevices;
+use DDD\Domain\DesignStudio\Entities\Thumbnails\RenderRequests\DesignStudioThumbnailRenderFailures;
 
 /**
  * A canvas as the studio page shows it: sections and boards read from the checkout, joined with the review state
@@ -53,12 +54,21 @@ class DesignStudioCanvasView extends ValueObject
     /** @var int Pictures (fixed boards and device frames of responsive boards) without a thumbnail in the requested look */
     public int $missingThumbnailCount = 0;
 
+    /** @var int Pictures (fixed boards and device frames of responsive boards) the look has or needs a thumbnail for */
+    public int $thumbnailPictureCount = 0;
+
     /** @var DesignDevices The device presets responsive boards can be shown in (picker of focus view and present mode) */
     public DesignDevices $devices;
 
     /** @var string|null Status of the newest render request for the look, null without one */
     public ?string $renderRequestStatus = null;
 
-    /** @var string|null Last renderer problem of that request */
+    /** @var string|null Last renderer problem of that request (or why no request can be filed, see isThemeStyleUnstable) */
     public ?string $renderRequestError = null;
+
+    /** @var DesignStudioThumbnailRenderFailures|null Pictures that request could not produce and that are still missing, with the error of each */
+    public ?DesignStudioThumbnailRenderFailures $renderRequestFailedBoards = null;
+
+    /** @var bool The theme provider answers a different style on each call: thumbnails cannot be matched to the look */
+    public bool $isThemeStyleUnstable = false;
 }

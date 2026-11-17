@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.8.0
+
+- **One failing picture no longer blocks the others.** Before, a thumbnail whose store failed (or hung, then threw)
+  ended the shard's run, put the request into `WAITING_FOR_RENDERER`, and the next run started with the same board
+  again; an answer that was no image escaped the handler. Now any throwable while rendering or storing one picture
+  (and a renderer 400) is that picture's failure: the run renders the rest, tries the failed pictures once more at its
+  end and records those that failed again with their error. The request does not try a recorded picture again (a new
+  board version or a new request does). Only a busy or unreachable renderer (401, 404, 429, 502–504, transport) still
+  makes the request wait with backoff.
+- **Visible end state.** A request that ends with an error and rendered no picture is `FAILED` (was `DONE`); one that
+  rendered pictures is `DONE` with `lastError` `k picture(s) failed: <board>: <error>; …`. The canvas shows "n of m, k
+  failed" with the error per picture (tooltip), the reason of a failed request in the pill, and files no new request on
+  its own after a failed or incomplete one (the pill retries). Canvas view: `thumbnailPictureCount`,
+  `renderRequestFailedBoards`, `isThemeStyleUnstable`. npm: texts `thumbnailsProgress`, `thumbnailsPending`,
+  `thumbnailsPartlyFailed`, `thumbnailsThemeUnstable`, `thumbnailFailedBoard`.
+- **Theme provider that answers another style on each call.** `DesignThemeProviderService::isThemeStyleStable()` asks
+  twice. Such a theme files no request; the canvas and `app:design-studio:thumbnails` (warning) name it ("the theme
+  returns different styles on each call"); a worker that meets it ends the request `FAILED` with that reason. A theme
+  that really changed since the request ends it with "the theme changed since the request was filed".
+- **A thumbnail exists once its full picture is stored.** The row is written after the full PNG; the small and the
+  preview copy are stored afterwards, each on its own, and a missing one is made on its first read. A full picture that
+  is already in the store is not uploaded again.
+- **Thumbnail store of its own (new config key):** `DesignStudio.storage.thumbnailStore`, default `null` (= `store`).
+  Recommended: a store name on the same bucket with `timeoutSeconds: 5`, `maxRetries: 3` (`mgamadeus/ddd` 3.35.2), so a
+  hanging upload fails one picture in bounded time.
+- **Schema:** two nullable columns on `DesignStudioThumbnailRenderRequests`, no index: `renderedThumbnailCount` INT,
+  `failedBoards` TEXT (take the exact DDL from the schema diff).
+
 ## 0.7.3
 
 - The peer range of `@mgamadeus/ddd-web` is `>=0.3.0 <1.0.0` (was `^0.3.0`, which a host on 0.4 or later did not

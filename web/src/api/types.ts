@@ -190,6 +190,22 @@ export interface DesignDevice {
   objectType?: string | null;
 }
 
+/** A picture a render request could not produce. */
+export interface DesignStudioThumbnailRenderFailure {
+  /** The board key, `<boardKey>@<deviceKey>` for a device frame */
+  renderTargetKey?: string | null;
+  /** Version of the board that failed (`<contentHash>:<assetsHash>`) */
+  boardVersion?: string | null;
+  /** Why the picture is missing */
+  error?: string | null;
+  objectType?: string | null;
+}
+
+export interface DesignStudioThumbnailRenderFailures {
+  elements?: DesignStudioThumbnailRenderFailure[];
+  objectType?: string | null;
+}
+
 export interface DesignDevices {
   elements?: DesignDevice[];
   objectType?: string | null;
@@ -222,12 +238,18 @@ export interface DesignStudioCanvasView {
   revision?: string | null;
   /** Thumbnails are rendered and shown */
   isRendererEnabled?: boolean;
-  /** Boards without a thumbnail in the requested look */
+  /** Pictures (fixed boards and device frames) without a thumbnail in the requested look */
   missingThumbnailCount?: number;
+  /** Pictures (fixed boards and device frames) the look has or needs a thumbnail for */
+  thumbnailPictureCount?: number;
   /** Status of the newest render request for the look, null without one */
   renderRequestStatus?: string | null;
-  /** Last renderer problem of that request */
+  /** Last renderer problem of that request, or why no request can be filed (isThemeStyleUnstable) */
   renderRequestError?: string | null;
+  /** Pictures that request could not produce and that are still missing, with the error of each */
+  renderRequestFailedBoards?: DesignStudioThumbnailRenderFailures | null;
+  /** The theme provider answers a different style on each call: thumbnails cannot be matched to the look */
+  isThemeStyleUnstable?: boolean;
   /** Device presets responsive boards can be shown in */
   devices?: DesignDevices;
   objectType?: string | null;
