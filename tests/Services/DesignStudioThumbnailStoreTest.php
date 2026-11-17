@@ -140,4 +140,35 @@ class DesignStudioThumbnailStoreTest extends TestCase
         $this->assertSame($firstObjectKey, $secondObjectKey);
         $this->assertSame([$firstObjectKey], $designStudioFilesService->uploadedObjectKeys);
     }
+
+    public function testTheExistenceCheckOfTheFullPictureUsesTheThumbnailStoreAndItsFailureIsThrown(): void
+    {
+        $designStudioFilesService = new class($this->storageDirectory) extends FilesystemDesignStudioFilesService {
+            public bool $mainStoreUsed = false;
+
+            protected function getObjectStorage(): ?ObjectStorage
+            {
+                $this->mainStoreUsed = true;
+                return parent::getObjectStorage();
+            }
+
+            protected function getThumbnailObjectStorage(): ?ObjectStorage
+            {
+                return new class($this->testStorageDirectory) extends FilesystemObjectStorage {
+                    public function objectExists(string $key): bool
+                    {
+                        throw new InternalErrorException("Object storage \"thumbnails\": check of $key failed: Could not contact remote server");
+                    }
+                };
+            }
+        };
+
+        try {
+            $designStudioFilesService->storeThumbnail(str_repeat('a', 64), $this->createPng());
+            $this->fail('the failed check is thrown to the picture\'s try');
+        } catch (InternalErrorException $internalErrorException) {
+            $this->assertStringContainsString('"thumbnails": check of', $internalErrorException->getMessage());
+        }
+        $this->assertFalse($designStudioFilesService->mainStoreUsed, 'the check never goes to the main store');
+    }
 }

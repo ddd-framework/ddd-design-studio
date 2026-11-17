@@ -707,6 +707,16 @@ every call names another look, so no thumbnail ever matches. The canvas view (`i
 reason; a theme whose style really changed since the request was filed ends it with "the theme changed since the
 request was filed".
 
+**Where a picture stands.** Each picture row keeps its tries (`attempts`), the reason of the last failed one
+(`lastError`) and when its next try is due (`nextAttemptAt`, set with the delayed retry). `app:design-studio:thumbnails`
+lists every queued or failed picture with these and `k picture(s) waiting for a retry until <time>`. Every check of a
+picture (its board, its existing thumbnail, the existence check, upload and copies in the thumbnail store) belongs to
+its try: a throw is that picture's failed try.
+
+**Pictures no consumer took.** A picture still `QUEUED` without any try 120 s after it was written (dispatched while the
+workers restarted, routed to a transport no consumer reads, or lost) is dispatched again once by the console status and
+by a look at the canvas; the console names it.
+
 **Lost requests.** Every picture message (a retry too) and every stored thumbnail writes the request (its modified
 time); an open request without any write for 5 minutes counts as lost: opening the canvas closes it as `FAILED` and
 files a new one.

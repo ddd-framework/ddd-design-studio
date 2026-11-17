@@ -14,6 +14,7 @@ use DDD\Domain\DesignStudio\Entities\Directory\DesignDirectoryBoard;
 use DDD\Domain\DesignStudio\Entities\Thumbnails\RenderRequests\DesignStudioThumbnailRenderRequest;
 use DDD\Domain\DesignStudio\Repo\DB\Thumbnails\RenderRequests\Pictures\DBDesignStudioThumbnailRenderPicture;
 use DDD\Domain\DesignStudio\Services\DesignStudioThumbnailRenderPicturesService;
+use DDD\Infrastructure\Base\DateTime\DateTime;
 use DDD\Infrastructure\Validation\Constraints\Choice;
 use Symfony\Component\Validator\Constraints\Length;
 use Symfony\Component\Validator\Constraints\NotNull;
@@ -93,6 +94,13 @@ class DesignStudioThumbnailRenderPicture extends Entity
     public ?string $lastError;
 
     /**
+     * @var DateTime|null When the next try is due: set when a retry is dispatched with a delay (or the picture is
+     *                    dispatched again after no consumer took it), null before the first try
+     */
+    #[DatabaseIndex(indexType: DatabaseIndex::TYPE_NONE)]
+    public ?DateTime $nextAttemptAt;
+
+    /**
      * @param DesignStudioThumbnailRenderRequest $renderRequest
      * @param DesignDirectoryBoard $renderTarget a fixed board or a device frame of a responsive board
      * @param int $position
@@ -109,6 +117,7 @@ class DesignStudioThumbnailRenderPicture extends Entity
         $designStudioThumbnailRenderPicture->status = static::STATUS_QUEUED;
         $designStudioThumbnailRenderPicture->attempts = 0;
         $designStudioThumbnailRenderPicture->lastError = null;
+        $designStudioThumbnailRenderPicture->nextAttemptAt = null;
         return $designStudioThumbnailRenderPicture;
     }
 
@@ -118,6 +127,17 @@ class DesignStudioThumbnailRenderPicture extends Entity
     public function isFinished(): bool
     {
         return in_array($this->status ?? null, static::FINISHED_STATUSES, true);
+    }
+
+    /**
+     * @param int $currentTimestamp
+     * @return bool QUEUED and its next try is still ahead (a retry with delay)
+     */
+    public function isWaitingForRetry(int $currentTimestamp): bool
+    {
+        return ($this->status ?? null) === static::STATUS_QUEUED
+            && isset($this->nextAttemptAt)
+            && $this->nextAttemptAt->getTimestamp() > $currentTimestamp;
     }
 
     public function uniqueKey(): string

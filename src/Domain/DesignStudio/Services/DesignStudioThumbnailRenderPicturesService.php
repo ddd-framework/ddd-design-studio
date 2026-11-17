@@ -11,6 +11,7 @@ use DDD\Domain\DesignStudio\Entities\Thumbnails\RenderRequests\Pictures\DesignSt
 use DDD\Domain\DesignStudio\Entities\Thumbnails\RenderRequests\Pictures\DesignStudioThumbnailRenderPictures;
 use DDD\Domain\DesignStudio\Repo\DB\Thumbnails\RenderRequests\Pictures\DBDesignStudioThumbnailRenderPicture;
 use DDD\Domain\DesignStudio\Repo\DB\Thumbnails\RenderRequests\Pictures\DBDesignStudioThumbnailRenderPictures;
+use DDD\Infrastructure\Base\DateTime\DateTime;
 use DDD\Infrastructure\Exceptions\BadRequestException;
 use DDD\Infrastructure\Exceptions\InternalErrorException;
 use Psr\Cache\InvalidArgumentException;
@@ -87,6 +88,25 @@ class DesignStudioThumbnailRenderPicturesService extends EntitiesService
     }
 
     /**
+     * @param DesignStudioThumbnailRenderRequest $renderRequest
+     * @return DesignStudioThumbnailRenderPictures all pictures of the request, in dispatch order
+     * @throws BadRequestException
+     * @throws InternalErrorException
+     * @throws InvalidArgumentException
+     * @throws ReflectionException
+     */
+    public function findPictures(DesignStudioThumbnailRenderRequest $renderRequest): DesignStudioThumbnailRenderPictures
+    {
+        $repoClass = $this->getEntitySetRepoClassInstance();
+        $queryBuilder = $repoClass::createQueryBuilder();
+        $alias = $repoClass::getBaseModelAlias();
+        $queryBuilder->andWhere("$alias.renderRequestId = :renderRequestId")
+            ->setParameter('renderRequestId', $renderRequest->id)
+            ->orderBy("$alias.position", 'ASC');
+        return $repoClass->find($queryBuilder, false) ?? new DesignStudioThumbnailRenderPictures();
+    }
+
+    /**
      * Moves a QUEUED picture to its final status; exactly one caller wins (a redelivered or duplicate message loses).
      * @param DesignStudioThumbnailRenderPicture $designStudioThumbnailRenderPicture
      * @param string $status DesignStudioThumbnailRenderPicture::STATUS_DONE / _FAILED / _SKIPPED
@@ -119,17 +139,35 @@ class DesignStudioThumbnailRenderPicturesService extends EntitiesService
     }
 
     /**
-     * Keeps the number of tries and the reason of the last failed one (the picture stays QUEUED for its retry).
+     * Keeps the number of tries, the reason of the last failed one and when the next one is due (the picture stays
+     * QUEUED for its retry).
      * @param DesignStudioThumbnailRenderPicture $designStudioThumbnailRenderPicture
      * @param int $attempts
      * @param string $lastError
+     * @param DateTime $nextAttemptAt when the retry dispatched with a delay is due
      * @return void
      */
-    public function recordFailedTry(DesignStudioThumbnailRenderPicture $designStudioThumbnailRenderPicture, int $attempts, string $lastError): void
+    public function recordFailedTry(DesignStudioThumbnailRenderPicture $designStudioThumbnailRenderPicture, int $attempts, string $lastError, DateTime $nextAttemptAt): void
     {
         $designStudioThumbnailRenderPicture->attempts = $attempts;
         $designStudioThumbnailRenderPicture->lastError = mb_substr($lastError, 0, 1000);
-        $designStudioThumbnailRenderPicture->updatePartialIgnoringRights('attempts', 'lastError');
+        $designStudioThumbnailRenderPicture->nextAttemptAt = $nextAttemptAt;
+        $designStudioThumbnailRenderPicture->updatePartialIgnoringRights('attempts', 'lastError', 'nextAttemptAt');
+    }
+
+    /**
+     * Marks a picture that no consumer took as dispatched again (nextAttemptAt set, the reason in lastError): it is
+     * dispatched again only once.
+     * @param DesignStudioThumbnailRenderPicture $designStudioThumbnailRenderPicture
+     * @param string $reason
+     * @param DateTime $redispatchedAt
+     * @return void
+     */
+    public function recordRedispatch(DesignStudioThumbnailRenderPicture $designStudioThumbnailRenderPicture, string $reason, DateTime $redispatchedAt): void
+    {
+        $designStudioThumbnailRenderPicture->lastError = mb_substr($reason, 0, 1000);
+        $designStudioThumbnailRenderPicture->nextAttemptAt = $redispatchedAt;
+        $designStudioThumbnailRenderPicture->updatePartialIgnoringRights('lastError', 'nextAttemptAt');
     }
 
     /**

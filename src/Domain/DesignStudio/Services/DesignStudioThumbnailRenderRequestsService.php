@@ -79,6 +79,15 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
      */
     public const int STALLED_AFTER_SECONDS = 300;
 
+    /**
+     * @var int Seconds after which a QUEUED picture without any try counts as not taken by a consumer and is dispatched
+     *          again once (redispatchUnconsumedPictures()); below STALLED_AFTER_SECONDS
+     */
+    public const int UNCONSUMED_PICTURE_AFTER_SECONDS = 120;
+
+    /** @var string lastError of a picture dispatched again because no consumer took it */
+    public const string UNCONSUMED_PICTURE_ERROR = 'no consumer took the picture within ' . self::UNCONSUMED_PICTURE_AFTER_SECONDS . ' s, dispatched again';
+
     /** @var int Pictures named in the request's lastError when it ends with failed pictures */
     public const int FAILED_BOARDS_NAMED_IN_LAST_ERROR = 3;
 
@@ -129,6 +138,7 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
             $latestRenderRequest = null;
         }
         if ($latestRenderRequest && $latestRenderRequest->isOpen()) {
+            $this->redispatchUnconsumedPictures($latestRenderRequest);
             return $latestRenderRequest;
         }
         $designDirectoryCanvas = $this->getDesignDirectoryReaderService()->readCanvas($canvasDefinition);
@@ -283,14 +293,30 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
             );
             return;
         }
-        $renderTarget = $this->findRenderTarget($canvasDefinition, $renderTargetKey);
+        try {
+            // the checks of the picture belong to its try: a throw (database, checkout) is retried with the delay
+            $renderTarget = $this->findRenderTarget($canvasDefinition, $renderTargetKey);
+            $isAlreadyStored = false;
+            if ($renderTarget !== null) {
+                $renderTargets = new DesignDirectoryBoards();
+                $renderTargets->add($renderTarget);
+                $isAlreadyStored = !$this->getDesignStudioThumbnailsService()->findBoardsWithoutThumbnail($renderTargets, $themeHash)->count();
+            }
+        } catch (Throwable $throwable) {
+            $this->retryPictureLater(
+                $renderRequest,
+                $designStudioThumbnailRenderPicture,
+                $attempt,
+                DesignStudioThumbnailRenderOutcome::create(DesignStudioThumbnailRenderOutcome::RESULT_RETRYABLE, 'checking the picture failed: ' . $throwable->getMessage()),
+                null
+            );
+            return;
+        }
         if ($renderTarget === null) {
             $this->finishPicture($renderRequest, $designStudioThumbnailRenderPicture, DesignStudioThumbnailRenderPicture::STATUS_SKIPPED, static::BOARD_GONE_ERROR);
             return;
         }
-        $renderTargets = new DesignDirectoryBoards();
-        $renderTargets->add($renderTarget);
-        if (!$this->getDesignStudioThumbnailsService()->findBoardsWithoutThumbnail($renderTargets, $themeHash)->count()) {
+        if ($isAlreadyStored) {
             // rendered meanwhile (another request of the same look, or a duplicate message)
             $this->finishPicture($renderRequest, $designStudioThumbnailRenderPicture, DesignStudioThumbnailRenderPicture::STATUS_SKIPPED, null);
             return;
@@ -304,6 +330,30 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
             }
             return;
         }
+        $this->retryPictureLater($renderRequest, $designStudioThumbnailRenderPicture, $attempt, $designStudioThumbnailRenderOutcome, $renderTarget);
+    }
+
+    /**
+     * A failed try of a picture: dispatched again with a delay (its next try time kept on the picture), or FAILED with
+     * its reason after the last try or a refusal.
+     * @param DesignStudioThumbnailRenderRequest $renderRequest
+     * @param DesignStudioThumbnailRenderPicture $designStudioThumbnailRenderPicture
+     * @param int $attempt the try that failed
+     * @param DesignStudioThumbnailRenderOutcome $designStudioThumbnailRenderOutcome RESULT_RETRYABLE or RESULT_REFUSED
+     * @param DesignDirectoryBoard|null $renderTarget
+     * @return void
+     * @throws BadRequestException
+     * @throws InternalErrorException
+     * @throws InvalidArgumentException
+     * @throws ReflectionException
+     */
+    protected function retryPictureLater(
+        DesignStudioThumbnailRenderRequest $renderRequest,
+        DesignStudioThumbnailRenderPicture $designStudioThumbnailRenderPicture,
+        int $attempt,
+        DesignStudioThumbnailRenderOutcome $designStudioThumbnailRenderOutcome,
+        ?DesignDirectoryBoard $renderTarget
+    ): void {
         $error = (string)$designStudioThumbnailRenderOutcome->error;
         if ($designStudioThumbnailRenderOutcome->result === DesignStudioThumbnailRenderOutcome::RESULT_REFUSED || $attempt >= static::MAX_PICTURE_ATTEMPTS) {
             $this->finishPicture(
@@ -316,12 +366,61 @@ class DesignStudioThumbnailRenderRequestsService extends EntitiesService
             return;
         }
         // try again later; the other pictures go on meanwhile
-        $designStudioThumbnailRenderPicturesService->recordFailedTry($designStudioThumbnailRenderPicture, $attempt, $error);
+        $delaySeconds = static::computeRetryDelaySeconds($attempt) + random_int(0, 10);
+        $this->getDesignStudioThumbnailRenderPicturesService()->recordFailedTry(
+            $designStudioThumbnailRenderPicture,
+            $attempt,
+            $error,
+            DateTime::fromTimestamp($this->getCurrentTimestamp() + $delaySeconds)
+        );
         if ($designStudioThumbnailRenderOutcome->isRendererUnavailable && $renderRequest->status !== DesignStudioThumbnailRenderRequest::STATUS_WAITING_FOR_RENDERER) {
             $renderRequest->status = DesignStudioThumbnailRenderRequest::STATUS_WAITING_FOR_RENDERER;
             $this->writeRequestColumns($renderRequest, 'status');
         }
-        $this->dispatchPictureMessage($renderRequest, $renderTargetKey, $attempt + 1, static::computeRetryDelaySeconds($attempt) + random_int(0, 10));
+        $this->dispatchPictureMessage($renderRequest, (string)$designStudioThumbnailRenderPicture->renderTargetKey, $attempt + 1, $delaySeconds);
+    }
+
+    /**
+     * The stall check of an open request: a picture still QUEUED without any try UNCONSUMED_PICTURE_AFTER_SECONDS after
+     * it was written was not taken by any consumer (dispatched while the workers restarted, routed to a transport no
+     * consumer reads, or the message was lost). It is dispatched again, once (its nextAttemptAt marks it); a picture
+     * that is still not tried after that waits for the request's own stall (STALLED_AFTER_SECONDS).
+     * @param DesignStudioThumbnailRenderRequest $renderRequest
+     * @return int pictures dispatched again
+     * @throws BadRequestException
+     * @throws InternalErrorException
+     * @throws InvalidArgumentException
+     * @throws ReflectionException
+     */
+    public function redispatchUnconsumedPictures(DesignStudioThumbnailRenderRequest $renderRequest): int
+    {
+        if (!$renderRequest->isOpen()) {
+            return 0;
+        }
+        $currentTimestamp = $this->getCurrentTimestamp();
+        $requestCreatedTime = $renderRequest->changeHistory->createdTime ?? null;
+        $designStudioThumbnailRenderPicturesService = $this->getDesignStudioThumbnailRenderPicturesService();
+        $redispatchedCount = 0;
+        foreach ($designStudioThumbnailRenderPicturesService->findQueuedPictures($renderRequest)->getElements() as $designStudioThumbnailRenderPicture) {
+            if (($designStudioThumbnailRenderPicture->attempts ?? 0) > 0 || isset($designStudioThumbnailRenderPicture->nextAttemptAt)) {
+                continue;
+            }
+            $pictureCreatedTime = $designStudioThumbnailRenderPicture->changeHistory->createdTime ?? $requestCreatedTime;
+            if ($pictureCreatedTime === null || $pictureCreatedTime->getTimestamp() > $currentTimestamp - static::UNCONSUMED_PICTURE_AFTER_SECONDS) {
+                continue;
+            }
+            $designStudioThumbnailRenderPicturesService->recordRedispatch(
+                $designStudioThumbnailRenderPicture,
+                static::UNCONSUMED_PICTURE_ERROR,
+                DateTime::fromTimestamp($currentTimestamp)
+            );
+            $this->dispatchPictureMessage($renderRequest, (string)$designStudioThumbnailRenderPicture->renderTargetKey, 1, 0);
+            $redispatchedCount++;
+        }
+        if ($redispatchedCount > 0) {
+            $this->writeRequestColumns($renderRequest);
+        }
+        return $redispatchedCount;
     }
 
     /**

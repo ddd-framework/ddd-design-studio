@@ -46,6 +46,9 @@ class DBDesignStudioThumbnailRenderPictureModel extends DoctrineModel
 	#[ORM\Column(type: 'string')]
 	public ?string $lastError;
 
+	#[ORM\Column(type: 'datetime')]
+	public ?DateTime $nextAttemptAt;
+
 	#[ORM\Id]
 	#[ORM\GeneratedValue]
 	#[ORM\Column(type: 'integer')]

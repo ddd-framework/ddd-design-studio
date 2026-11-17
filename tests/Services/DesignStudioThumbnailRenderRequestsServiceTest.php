@@ -27,6 +27,7 @@ use DDD\Domain\Base\Repo\DatabaseRepoEntity;
 use DDD\Infrastructure\Base\DateTime\DateTime;
 use DDD\Infrastructure\Exceptions\BadRequestException;
 use DDD\Infrastructure\Exceptions\InternalErrorException;
+use DDD\Symfony\Commands\DesignStudio\DesignStudioThumbnails as DesignStudioThumbnailsCommand;
 use DDD\Tests\DesignStudio\Support\FixedRootDesignDirectoryReaderService;
 use DDD\Tests\DesignStudio\Support\TestContainer;
 use PHPUnit\Framework\TestCase;
@@ -49,6 +50,9 @@ class DesignStudioThumbnailRenderRequestsServiceTest extends TestCase
 
     /** @var int stores that fail (the object store is not reachable) before the next one succeeds */
     protected int $failingThumbnailStoreCount = 0;
+
+    /** @var int existence checks of thumbnail rows that fail (the database is not reachable) before the next one succeeds */
+    protected int $failingExistenceCheckCount = 0;
 
     /** @var string[] board key => exception class thrown by every store of its thumbnail */
     protected array $alwaysFailingStoreExceptionByBoardKey = [];
@@ -119,12 +123,14 @@ class DesignStudioThumbnailRenderRequestsServiceTest extends TestCase
         $failingThumbnailStoreCount = &$this->failingThumbnailStoreCount;
         $alwaysFailingStoreExceptionByBoardKey = &$this->alwaysFailingStoreExceptionByBoardKey;
         $storeAttemptBoardKeys = &$this->storeAttemptBoardKeys;
-        return new class($renderedContentHashes, $failingThumbnailStoreCount, $alwaysFailingStoreExceptionByBoardKey, $storeAttemptBoardKeys) extends DesignStudioThumbnailsService {
+        $failingExistenceCheckCount = &$this->failingExistenceCheckCount;
+        return new class($renderedContentHashes, $failingThumbnailStoreCount, $alwaysFailingStoreExceptionByBoardKey, $storeAttemptBoardKeys, $failingExistenceCheckCount) extends DesignStudioThumbnailsService {
             public function __construct(
                 protected array &$testRenderedContentHashes,
                 protected int &$testFailingThumbnailStoreCount,
                 protected array &$testAlwaysFailingStoreExceptionByBoardKey,
-                protected array &$testStoreAttemptBoardKeys
+                protected array &$testStoreAttemptBoardKeys,
+                protected int &$testFailingExistenceCheckCount
             ) {
             }
 
@@ -141,7 +147,7 @@ class DesignStudioThumbnailRenderRequestsServiceTest extends TestCase
                     // a hanging upload ends with the store's timeout (timeoutSeconds / maxRetries of the thumbnail store)
                     throw new $exceptionClass($exceptionClass === BadRequestException::class
                         ? "Thumbnail of $designDirectoryBoard->boardKey: not an image"
-                        : 'Object storage "test": put failed: Idle timeout reached');
+                        : ($this->testAlwaysFailingStoreExceptionByBoardKey['message'] ?? 'Object storage "test": put failed: Idle timeout reached'));
                 }
                 if ($this->testFailingThumbnailStoreCount > 0) {
                     $this->testFailingThumbnailStoreCount--;
@@ -153,6 +159,10 @@ class DesignStudioThumbnailRenderRequestsServiceTest extends TestCase
 
             public function findForBoards(DesignDirectoryBoards $designDirectoryBoards, string $themeHash): DesignStudioThumbnails
             {
+                if ($this->testFailingExistenceCheckCount > 0) {
+                    $this->testFailingExistenceCheckCount--;
+                    throw new InternalErrorException('SQLSTATE[08006] server closed the connection unexpectedly');
+                }
                 $designStudioThumbnails = new DesignStudioThumbnails();
                 foreach ($designDirectoryBoards->getElements() as $designDirectoryBoard) {
                     if (isset($this->testRenderedContentHashes[(string)$designDirectoryBoard->contentHash])) {
@@ -172,8 +182,40 @@ class DesignStudioThumbnailRenderRequestsServiceTest extends TestCase
     {
         $storedPictures = &$this->storedPictures;
         return new class($storedPictures) extends DesignStudioThumbnailRenderPicturesService {
+            public int $testCreatedTimestamp = 1000000;
+
             public function __construct(protected array &$testStoredPictures)
             {
+            }
+
+            public function findPictures(DesignStudioThumbnailRenderRequest $renderRequest): DesignStudioThumbnailRenderPictures
+            {
+                $designStudioThumbnailRenderPictures = new DesignStudioThumbnailRenderPictures();
+                foreach ($this->testStoredPictures as $storedPicture) {
+                    if ($storedPicture->renderRequestId === $renderRequest->id) {
+                        $pictureCopy = clone $storedPicture;
+                        $designStudioThumbnailRenderPictures->add($pictureCopy);
+                    }
+                }
+                return $designStudioThumbnailRenderPictures;
+            }
+
+            public function findQueuedPictures(DesignStudioThumbnailRenderRequest $renderRequest): DesignStudioThumbnailRenderPictures
+            {
+                $queuedPictures = new DesignStudioThumbnailRenderPictures();
+                foreach ($this->findPictures($renderRequest)->getElements() as $designStudioThumbnailRenderPicture) {
+                    if ($designStudioThumbnailRenderPicture->status === DesignStudioThumbnailRenderPicture::STATUS_QUEUED) {
+                        $queuedPictures->add($designStudioThumbnailRenderPicture);
+                    }
+                }
+                return $queuedPictures;
+            }
+
+            public function recordRedispatch(DesignStudioThumbnailRenderPicture $designStudioThumbnailRenderPicture, string $reason, DateTime $redispatchedAt): void
+            {
+                $storedPicture = $this->testStoredPictures[$designStudioThumbnailRenderPicture->renderRequestId . '|' . $designStudioThumbnailRenderPicture->renderTargetKey];
+                $storedPicture->lastError = $designStudioThumbnailRenderPicture->lastError = $reason;
+                $storedPicture->nextAttemptAt = $designStudioThumbnailRenderPicture->nextAttemptAt = $redispatchedAt;
             }
 
             public function createPictures(DesignStudioThumbnailRenderPictures $designStudioThumbnailRenderPictures): void
@@ -182,6 +224,8 @@ class DesignStudioThumbnailRenderRequestsServiceTest extends TestCase
                     $key = $designStudioThumbnailRenderPicture->renderRequestId . '|' . $designStudioThumbnailRenderPicture->renderTargetKey;
                     if (!isset($this->testStoredPictures[$key])) {
                         $designStudioThumbnailRenderPicture->id = count($this->testStoredPictures) + 1;
+                        $designStudioThumbnailRenderPicture->changeHistory = new ChangeHistory();
+                        $designStudioThumbnailRenderPicture->changeHistory->createdTime = DateTime::fromTimestamp($this->testCreatedTimestamp);
                         $this->testStoredPictures[$key] = $designStudioThumbnailRenderPicture;
                     }
                 }
@@ -204,11 +248,12 @@ class DesignStudioThumbnailRenderRequestsServiceTest extends TestCase
                 return true;
             }
 
-            public function recordFailedTry(DesignStudioThumbnailRenderPicture $designStudioThumbnailRenderPicture, int $attempts, string $lastError): void
+            public function recordFailedTry(DesignStudioThumbnailRenderPicture $designStudioThumbnailRenderPicture, int $attempts, string $lastError, DateTime $nextAttemptAt): void
             {
                 $storedPicture = $this->testStoredPictures[$designStudioThumbnailRenderPicture->renderRequestId . '|' . $designStudioThumbnailRenderPicture->renderTargetKey];
                 $storedPicture->attempts = $designStudioThumbnailRenderPicture->attempts = $attempts;
                 $storedPicture->lastError = $designStudioThumbnailRenderPicture->lastError = $lastError;
+                $storedPicture->nextAttemptAt = $designStudioThumbnailRenderPicture->nextAttemptAt = $nextAttemptAt;
             }
 
             public function findPictureCounts(DesignStudioThumbnailRenderRequest $renderRequest): DesignStudioThumbnailRenderPictureCounts
@@ -410,6 +455,7 @@ class DesignStudioThumbnailRenderRequestsServiceTest extends TestCase
     {
         return [
             'store timeout' => [InternalErrorException::class, 'storing the thumbnail failed: Object storage "test": put failed: Idle timeout reached'],
+            'existence check of the full picture' => [InternalErrorException::class, 'storing the thumbnail failed: Object storage "test": check of design-studio/thumbnails/x.png failed: Could not contact remote server'],
             'not an image' => [BadRequestException::class, 'storing the thumbnail failed: Thumbnail of b.html: not an image'],
         ];
     }
@@ -421,6 +467,9 @@ class DesignStudioThumbnailRenderRequestsServiceTest extends TestCase
     {
         $this->writeBoards(['a.html', 'b.html', 'c.html', 'd.html']);
         $this->alwaysFailingStoreExceptionByBoardKey = ['b.html' => $exceptionClass];
+        if (str_contains($expectedError, 'check of')) {
+            $this->alwaysFailingStoreExceptionByBoardKey['message'] = substr($expectedError, strlen('storing the thumbnail failed: '));
+        }
         $service = $this->createService();
         $renderRequest = $this->fileRequest($service, ['b.html']);
 
@@ -641,6 +690,94 @@ class DesignStudioThumbnailRenderRequestsServiceTest extends TestCase
             DesignStudioThumbnailRenderRequestsService::MAX_RETRY_DELAY_SECONDS,
             'a picture waiting for its retry (with jitter) keeps the request alive'
         );
+    }
+
+    public function testARetryKeepsItsTryNumberAndTheTimeOfTheNextTryOnThePicture(): void
+    {
+        $this->writeBoards(['home.html']);
+        $this->failingThumbnailStoreCount = 1;
+        $service = $this->createService();
+        $this->fileRequest($service);
+
+        $service->runNextMessage();
+
+        $storedPicture = $this->storedPictures['1|home.html'];
+        $this->assertSame(DesignStudioThumbnailRenderPicture::STATUS_QUEUED, $storedPicture->status);
+        $this->assertSame(1, $storedPicture->attempts);
+        $delaySeconds = $service->dispatchedMessages[0][3];
+        $this->assertSame($service->currentTimestamp + $delaySeconds, $storedPicture->nextAttemptAt->getTimestamp());
+        $this->assertTrue($storedPicture->isWaitingForRetry($service->currentTimestamp));
+        $this->assertFalse($storedPicture->isWaitingForRetry($service->currentTimestamp + $delaySeconds));
+        $pictures = $this->getTestContainer()->get(DesignStudioThumbnailRenderPicturesService::class)->findPictures($service->renderRequests[1]);
+        $this->assertSame(1, $pictures->getPicturesWaitingForRetry($service->currentTimestamp)->count());
+        $this->assertSame($storedPicture->nextAttemptAt->getTimestamp(), $pictures->getLatestNextAttemptAt()->getTimestamp());
+        $this->assertSame(
+            'queued: home.html — try 2 of 5 at ' . $storedPicture->nextAttemptAt . ' — storing the thumbnail failed: Object storage "test": put failed: Could not contact remote server',
+            DesignStudioThumbnailsCommand::describePicture($storedPicture)
+        );
+    }
+
+    public function testAThrowFromTheExistenceCheckIsThatPicturesFailedTryAndRetriedWithTheDelay(): void
+    {
+        $this->writeBoards(['a.html', 'b.html']);
+        $service = $this->createService();
+        $renderRequest = $this->fileRequest($service);
+        $this->failingExistenceCheckCount = 1;
+
+        $service->runNextMessage();
+
+        $this->assertSame(1, $this->storedPictures['1|a.html']->attempts);
+        $this->assertStringStartsWith('checking the picture failed: SQLSTATE', (string)$this->storedPictures['1|a.html']->lastError);
+        $this->assertNotNull($this->storedPictures['1|a.html']->nextAttemptAt);
+        $retryMessage = end($service->dispatchedMessages);
+        $this->assertSame(['a.html', 2], [$retryMessage[1], $retryMessage[2]]);
+        $this->assertGreaterThanOrEqual(DesignStudioThumbnailRenderRequestsService::FIRST_RETRY_DELAY_SECONDS, $retryMessage[3]);
+
+        $service->runAllMessages();
+        $this->assertSame(DesignStudioThumbnailRenderRequest::STATUS_DONE, $renderRequest->status);
+        $this->assertSame(2, $renderRequest->renderedThumbnailCount);
+    }
+
+    public function testAPictureNoConsumerTookIsDispatchedAgainOnceAfterTheThreshold(): void
+    {
+        $this->writeBoards(['a.html', 'b.html']);
+        $service = $this->createService();
+        $renderRequest = $this->fileRequest($service);
+        // the first message is consumed and fails once; the second one is lost (no consumer read it)
+        $this->failingThumbnailStoreCount = 1;
+        $service->runNextMessage();
+        $service->dispatchedMessages = [];
+
+        $service->currentTimestamp += DesignStudioThumbnailRenderRequestsService::UNCONSUMED_PICTURE_AFTER_SECONDS - 1;
+        $this->assertSame(0, $service->redispatchUnconsumedPictures($renderRequest), 'not before the threshold');
+
+        $service->currentTimestamp += 1;
+        $this->assertSame(1, $service->redispatchUnconsumedPictures($renderRequest));
+        $this->assertSame([[1, 'b.html', 1, 0]], $service->dispatchedMessages, 'only the picture without a try');
+        $this->assertSame(DesignStudioThumbnailRenderRequestsService::UNCONSUMED_PICTURE_ERROR, $this->storedPictures['1|b.html']->lastError);
+        $this->assertSame(0, $service->redispatchUnconsumedPictures($renderRequest), 'once');
+        $this->assertSame(1, $service->requestRendering($this->canvasDefinition, null, [], null)->id, 'the open request is returned, nothing dispatched again');
+        $this->assertCount(1, $service->dispatchedMessages);
+
+        $service->runAllMessages();
+        $this->assertSame(DesignStudioThumbnailRenderPicture::STATUS_DONE, $this->storedPictures['1|b.html']->status);
+    }
+
+    public function testTheThresholdOfAnUnconsumedPictureIsBelowTheRequestStall(): void
+    {
+        $this->assertLessThan(DesignStudioThumbnailRenderRequestsService::STALLED_AFTER_SECONDS, DesignStudioThumbnailRenderRequestsService::UNCONSUMED_PICTURE_AFTER_SECONDS);
+        $failedPicture = new DesignStudioThumbnailRenderPicture();
+        $failedPicture->renderTargetKey = 'a.html';
+        $failedPicture->status = DesignStudioThumbnailRenderPicture::STATUS_FAILED;
+        $failedPicture->attempts = 5;
+        $failedPicture->lastError = 'HTTP 503 down (after 5 tries)';
+        $this->assertSame('failed: a.html — after 5 tries — HTTP 503 down (after 5 tries)', DesignStudioThumbnailsCommand::describePicture($failedPicture));
+        $queuedPicture = new DesignStudioThumbnailRenderPicture();
+        $queuedPicture->renderTargetKey = 'b.html';
+        $queuedPicture->status = DesignStudioThumbnailRenderPicture::STATUS_QUEUED;
+        $queuedPicture->attempts = 0;
+        $queuedPicture->nextAttemptAt = null;
+        $this->assertSame('queued: b.html — try 1 of 5, not taken by a consumer yet', DesignStudioThumbnailsCommand::describePicture($queuedPicture));
     }
 
     public function testTheRendererTimeoutBoundsOnePicture(): void

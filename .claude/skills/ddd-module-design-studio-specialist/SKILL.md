@@ -3,7 +3,7 @@ name: ddd-module-design-studio-specialist
 description: "Installs, wires and operates ddd-design-studio, a review studio for a checkout's HTML design boards. Covers canvas.json, boards and versions, assets-folder images, board scripts, responsive boards in device frames, the site view, the DesignStudio config files, thin controllers on the three traits, the token-guarded content route, object storage, the optional renderer (thumbnails, SVG export) and worker, access policy and theme provider, board codes (APP ONB-W2), and app:design-studio:show, comments, comments-poll, decisions, status, theme, thumbnails, export, prune. Use when installing the studio, adding a canvas, putting photos into boards, running board JavaScript, marking a board responsive, opening a canvas as a website, linking to a board, answering design comments as an agent, setting a board status, requesting thumbnails, exporting a board as SVG, or debugging an empty canvas, a missing board or image, No handler for message, missing thumbnails or a 404 on board content."
 metadata:
   author: mgamadeus
-  version: "0.9.0"
+  version: "0.9.1"
   module: mgamadeus/ddd-design-studio
 ---
 
@@ -336,7 +336,7 @@ Off by default (`DesignStudio.renderer.enabled` = `false`): the canvas view then
 5. Check and request:
 
    ```bash
-   php bin/console app:design-studio:thumbnails app onboarding                    # "N of M pictures have a thumbnail" + newest request: done / failed / skipped / queued, failed pictures with reasons
+   php bin/console app:design-studio:thumbnails app onboarding                    # "N of M pictures have a thumbnail" + newest request: done / failed / skipped / queued; per queued / failed picture its try, next try time and reason; "k waiting for a retry until <time>"; re-dispatches pictures no consumer took
    php bin/console app:design-studio:thumbnails app onboarding --render           # files a request: one message per missing picture (after a failure: only those)
    php bin/console app:design-studio:thumbnails app onboarding --theme=brand:1:dark --render
    ```
@@ -347,7 +347,11 @@ and stored none, or replaced after 5 minutes without a sign of life). The pictur
 `DesignStudioThumbnailRenderPictures` (`QUEUED` → `DONE` / `FAILED` / `SKIPPED`, exactly once); the request closes when
 they add up. A failed try (renderer busy / unreachable / no answer, a render or store that throws or times out, no
 image) is dispatched again after 30 / 60 / 120 / 240 s, at most 5 tries; then, or at once for a renderer 400, the
-picture is `FAILED` with its reason (row, request `failedBoards`, `lastError` `k picture(s) failed: …`). The canvas
+picture is `FAILED` with its reason (row, request `failedBoards`, `lastError` `k picture(s) failed: …`). The row keeps
+`attempts`, `lastError` and `nextAttemptAt` (0.9.1, nullable DATETIME: when the delayed retry is due). Every check of a
+picture (board lookup, thumbnail row, object-store existence check, upload, copies — all in the thumbnail store) is
+part of its try. A picture `QUEUED` with no try 120 s after it was written is dispatched again once (console status,
+canvas look). The canvas
 shows progress, then "n of m, k failed" with the reason per picture; its retry and `--render` dispatch only the
 pictures still missing. A board changed since filing is rendered in its current version; a board that is gone is
 skipped. A theme provider that answers another style on each call is named by the canvas, the console (warning) and
@@ -440,6 +444,7 @@ class AppDesignAccessPolicyService extends DesignAccessPolicyService
 | Old version of a commented board cannot be shown | No object store was configured when the thread started (no snapshot), or the snapshot object is gone |
 | `No handler for message "…RenderDesignStudioThumbnailMessage"` (or `…ThumbnailsMessage`) | The handler tag is missing in `services.yaml`, or the worker runs a container built before it was added. Add both handler tags, rebuild the container, restart the workers |
 | Thumbnails arrive one at a time / slowly | One consumer process renders one picture at a time: run as many consumers on `render_design_studio_thumbnails` as the renderer renders at once (`concurrency` is gone since 0.9) |
+| Picture `queued: … try 1 of 5, not taken by a consumer yet` | No consumer took its message (dispatched during a worker restart, routing to another transport, lost). The console status re-dispatches it once after 120 s; if it stays, check the consumers of `render_design_studio_thumbnails` and the routing line |
 | Render request stays `QUEUED` | No consumer on `render_design_studio_thumbnails`, transport or routing missing, or the message's account fails `canView()` in the worker. After 5 minutes without a write the next request replaces it |
 | Render request `WAITING_FOR_RENDERER` | See `lastError` (`app:design-studio:thumbnails …`): endpoint not reachable (404), token missing or wrong (401), renderer busy (429) |
 | Request `DONE` but thumbnails are missing | No object store configured (thumbnails cannot be stored), or single pictures failed: `app:design-studio:thumbnails` lists them with their errors; the canvas retry button files a new request |

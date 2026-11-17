@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.9.1
+
+**Thumbnails: the console shows where each picture stands, and a picture no consumer took is dispatched again.**
+
+- **Schema change: new nullable column `nextAttemptAt` (DATETIME) on `DesignStudioThumbnailRenderPictures`.** Add it
+  through the schema diff before the workers run 0.9.1 (`DBDesignStudioThumbnailRenderPictureModel` is regenerated).
+  It holds when the next try of a picture is due: set when a failed try is dispatched again with its `DelayStamp`.
+- **`app:design-studio:thumbnails` per picture.** Every queued or failed picture of the newest request is listed with
+  its try number, the time of its next try and the reason of its last failure (`queued: a.html — try 2 of 5 at
+  2026-11-17 10:00:31 — …`, `queued: b.html — try 1 of 5, not taken by a consumer yet`, `failed: c.html — after 5
+  tries — …`), plus a request line `k picture(s) waiting for a retry until <time>`.
+- **Stall check for pictures.** A picture still `QUEUED` without any try 120 s after it was written
+  (`UNCONSUMED_PICTURE_AFTER_SECONDS`) was not taken by a consumer — dispatched while the workers restarted, routed to
+  a transport no consumer reads, or a lost message. The console status and every look at the canvas dispatch it again,
+  once (its `lastError` says so, its `nextAttemptAt` marks it); the console names how many and asks whether a consumer
+  of `render_design_studio_thumbnails` runs. A picture still not tried after that ends with the request's own stall
+  (5 minutes without a write).
+- **Every check of a picture is part of its try.** The lookup of its board and of its existing thumbnail row ran
+  outside the try: a throw there (database, checkout) left Messenger's own retry with the picture `QUEUED` and no try
+  recorded. It now counts as the picture's failed try (`checking the picture failed: …`), retried with the delay like a
+  failing upload. The existence check of the full picture in the object store (`check of … failed`, as seen with
+  0.8.0) already ran inside the try since 0.9.0, against the thumbnail store (`DesignStudio.storage.thumbnailStore`
+  with its timeout and retry settings); a test now holds both.
+
 ## 0.9.0
 
 **Thumbnails: one message per picture.** A render request no longer runs in shards that work through a list of boards;
